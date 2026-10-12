@@ -242,6 +242,6 @@ timestamp,sender,message,event
 
 ## 开源与致谢
 
-项目原创代码采用根目录 [MIT License](../../LICENSE)。键盘扩展与共享容器方案参考 [Jev iOS](https://github.com/jev-chat/jev-chat-jarvis-ios)，保留其 [LICENSE](vendor/LICENSE)、[NOTICE](vendor/NOTICE) 与[来源版本](vendor/UPSTREAM.json)。本地拼音词库来自 [Rime 袖珍简化字拼音](https://github.com/rime/rime-pinyin-simp)，保留 [Apache-2.0 许可证](vendor/pinyin-simp/LICENSE)、[作者说明](vendor/pinyin-simp/AUTHORS)与[固定版本](vendor/pinyin-simp/UPSTREAM.json)。关系指南来自本仓库。项目与 Apple、微信及其他聊天平台无关联。
+项目原创代码采用根目录 [MIT License](../../LICENSE)。内容参考了jev-chat，这里非常感谢，保留其 [LICENSE](vendor/LICENSE)、[NOTICE](vendor/NOTICE) 与[来源版本](vendor/UPSTREAM.json)。本地拼音词库来自 [Rime 袖珍简化字拼音](https://github.com/rime/rime-pinyin-simp)，保留 [Apache-2.0 许可证](vendor/pinyin-simp/LICENSE)、[作者说明](vendor/pinyin-simp/AUTHORS)与[固定版本](vendor/pinyin-simp/UPSTREAM.json)。关系指南来自本仓库。项目与 Apple、微信及其他聊天平台无关联。
 
 欢迎[收藏项目](https://github.com/shengjidaguai-china/goutoujunshi-jev-chat/stargazers)，使用中遇到问题请[提交 Issue](https://github.com/shengjidaguai-china/goutoujunshi-jev-chat/issues)，附上 iOS 版本、安装版本与复现步骤。
