@@ -1,4 +1,4 @@
-<!-- README_SYNC: source=working-tree; updated=2026-10-06 -->
+<!-- README_SYNC: source=working-tree; updated=2026-10-12 -->
 
 <p align="center"><a href="./README.md">简体中文</a> · English</p>
 
@@ -9,6 +9,20 @@
 If it helps you, [Star the project](https://github.com/shengjidaguai-china/goutoujunshi-jev-chat/stargazers) so you can find it again and help others discover it.
 
 **Thanks to PR contributor [@RayWangQvQ (在7楼)](https://github.com/RayWangQvQ)** for [PR #1](https://github.com/shengjidaguai-china/goutoujunshi-jev-chat/pull/1), fixing disappearing transcript review and confirmation loops in Android's generic screenshot flow, with focus-restoration tests. The contributor reported Soul device validation in the PR. Full attribution appears under “Contributors and acknowledgments.”
+
+## iOS keyboard preview
+
+The [iOS project and installation guide](integrations/jev_ios/README_EN.md) pairs a companion app for providers and relationship context with a chat keyboard. Review the transcript, analyze it, and confirm a candidate before inserting it into the current draft. Sending remains your choice.
+
+- **Offline typing:** a 65,125-entry Chinese Pinyin dictionary, candidate selection, English case switching, numbers, symbols and cursor movement. Typing makes no model requests and works without Full Access.
+- **Chat image recognition:** selected, pasted or copied images, plus system screenshot shortcuts. Choose local Apple Vision, DeepSeek or OpenRouter vision. The top 识图 button prepares reception; the system shortcut takes the screenshot. Cloud images are previewed and uploaded only after confirmation.
+- **Assistant analysis:** DeepSeek or Jev judgment, with DeepSeek or OpenRouter replies. Possible intent, confidence, facts/hypotheses/unknowns, next steps, stop conditions, candidate ranking, reasons/tradeoffs and voice rewrites remain available. Percentages are estimates or relative weights, not reply-success probabilities.
+- **Drafts and session recovery:** confirmation stays inside the keyboard, then insertion returns to its own typing layout. Reopening can restore the current round within its fixed five-minute lifetime; review the recipient again.
+- **Companion app:** graphical key setup, relationship records and local chat-CSV candlesticks, with cream, warm-orange and Shiba styling. The settings attribution section has been removed; licenses and attribution remain in the repository.
+
+**This iOS 16+ Xcode source preview has no public signed IPA, TestFlight or App Store download.** Build and add the keyboard following the guide; online assistant features require Full Access. The keyboard cannot retrieve full chat history or verify recipients, and host apps may restrict third-party keyboards. The broadcast-capture experiment remains unverified on device; use the system shortcut first.
+
+Local Xcode 27.0 simulator and signed-iPhone builds passed, together with 225 offline checks (165 core, 33 typing, 27 OCR), UI syntax and project metadata checks. The app was updated and launched on a personal iPhone. Complete host-app interactions and live providers still need separate validation. The Mac, Windows and Android Release downloads below do not include iOS.
 
 ## Illustrated Android guide: DeepSeek setup and Soul
 

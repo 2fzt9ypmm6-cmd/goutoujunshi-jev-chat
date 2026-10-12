@@ -1,0 +1,27 @@
+# 02-minimal
+Use case: logo-brand
+Asset type: one production iOS app icon for 狗头军师, a personal chat and relationship advisor.
+Primary request: Design an exceptionally elegant minimalist geometric dog-head logo. A single warm ivory shape on a full-bleed deep forest-green background. The outer shape combines a compact Shiba dog's triangular ears with the rounded lower contour and subtle tail of a chat bubble. Inside, dark-green negative-space shapes create tiny clever angled eyes and a simple triangular nose and short smile. Sophisticated understated friendliness, a smart trusted advisor. Fewer details than a cartoon mascot, a very distinctive silhouette, suitable for 40-pixel display.
+Style: precise contemporary graphic design, flat vector-like artwork, clean solid colors, generously curved geometry, restrained and premium.
+Composition: centered single mark occupying about 66% of the square width with comfortable padding, balanced silhouette and deliberate negative space.
+Palette: background #244C40; main mark #F7F1E3. Only two colors.
+Output: one square 1024x1024 full-bleed opaque icon artwork; leave outer square corners filled, iOS supplies the rounded mask. No text, letters, numbers, watermark, border, inset tile, mockup, multiple concepts, pawprint, robot or existing brand logos.
+
+# 03-scholarly
+Use case: logo-brand
+Asset type: one production iOS app icon for 狗头军师, a personal chat and relationship advisor.
+Primary request: Design an original clever friendly dog advisor mascot: a Shiba-like dog head wearing bold rounded forest-green glasses. Playful but composed, gently raised eyebrow and a subtle short smile, looking straight ahead. Glasses evoke the advisor/strategist role. The lower silhouette has a small chat-bubble tail. Make the head one cohesive stylish logo shape rather than a detailed illustration.
+Style: polished contemporary mascot branding, bold clean vector-like geometric shapes, mostly flat graphic finish, crisp readable silhouette. Warm, approachable, not childish.
+Palette: full-bleed warm ivory background #F3EEE2; burnt ochre #CE9A4B dog ears and upper forehead; ivory lower muzzle; deep forest-green #254D40 thick glasses and nose. Strong contrast.
+Composition: centered single dog-head mark around 72% of the square width, ears fully visible, generous margin. Eyes and glasses large enough to read at 40 pixels.
+Output: one square 1024x1024 opaque icon artwork, corners filled with ivory, no inset tile or pre-rounded outside corners.
+Avoid: text, numbers, words, watermarks, existing logos, screens, mockups, multiple variants, realistic fur, complicated accessories, hearts floating around, neon colors.
+
+# 04-soft-3d
+Use case: stylized-concept
+Asset type: one production iOS app icon for 狗头军师, a personal chat and relationship advisor.
+Primary request: A beautifully designed soft sculpted dog-head chat-bubble mascot, original Shiba-like face with triangular ears, clever slightly raised brows, a small dark nose and friendly tiny smile. The cheek outline organically becomes a small chat-bubble tail. Clean compact silhouette, premium approachable character, a trusty little advisor. No additional objects.
+Style: restrained soft 3D clay / satin ceramic app-icon design, smooth surfaces, softly beveled shapes, subtle ambient shadows, not shiny plastic, no realistic fur. A single sculpted mascot, no pedestal.
+Palette: full-bleed soft muted sage-green background #B8CDBA; warm cream dog face; small muted golden-ochre inner ears; deep forest-green eyes and nose. Soft warm studio lighting and gentle depth, high contrast silhouette.
+Composition: front view centered mascot occupying about 72% of square width; full ears and chat tail visible with safe padding. Very simple readable face at 40 pixels.
+Output: one square 1024x1024 full-bleed opaque icon artwork, no frame, no inset rounded tile, no phone mockup, no text, letters, watermark, hearts, extra characters, brand logos or tiny decorative elements.

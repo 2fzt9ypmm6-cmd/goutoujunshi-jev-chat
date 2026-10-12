@@ -1,4 +1,4 @@
-<!-- README_SYNC: source=working-tree; updated=2026-10-06 -->
+<!-- README_SYNC: source=working-tree; updated=2026-10-12 -->
 
 <p align="center">简体中文 · <a href="./README_EN.md">English</a></p>
 
@@ -9,6 +9,20 @@
 如果这套聊天副驾对你有用，可以给[项目点一个 Star](https://github.com/shengjidaguai-china/goutoujunshi-jev-chat/stargazers)，方便以后找到，也让更多有相同需求的人看到它。
 
 **感谢 PR 贡献者 [@RayWangQvQ（在7楼）](https://github.com/RayWangQvQ)**：通过 [PR #1](https://github.com/shengjidaguai-china/goutoujunshi-jev-chat/pull/1) 修复安卓通用截图流程中的核对页消失和确认循环，并补充焦点恢复测试。他在 PR 中报告了 Soul 真机验证，详细署名见文末「贡献者与致谢」。
+
+## iOS 键盘预览版
+
+新增 [iOS 工程与安装说明](integrations/jev_ios/README.md)：主 App 配置模型、关系阶段和目标，聊天中切换狗头军师键盘，核对原文后分析，再把候选填入当前草稿。发送由你决定。
+
+- **本地打字**：约 6.5 万条词条的中文全拼、候选选字、英文大小写、数字、符号和光标移动。日常输入不调用模型，关闭完全访问仍可打字。
+- **聊天识图**：相册、文件、粘贴或系统快捷指令截图；支持 Apple Vision 本地 OCR、DeepSeek 与 OpenRouter 图片识别。顶部「识图」准备接收截图，真正截屏由系统快捷指令完成；云端先预览、确认后上传。
+- **军师分析**：DeepSeek 或 Jev 判断，DeepSeek 或 OpenRouter 生成回复。保留可能意图、判断把握、事实／推测／未知、下一步、停止条件、候选排序、理由与代价，以及「更像我一点」。百分比是模型估计或相对权重，不代表回复成功率。
+- **草稿与轮次恢复**：填入确认使用键盘内页面，确认后回到自己的打字布局；收起再打开可恢复五分钟内暂存的本轮原文与结果，需要重新核对收件人。
+- **主 App**：可视化 Key 配置、关系资料和聊天 CSV 的本地 K 线；米白、暖橙与柴犬标识。配置页已去掉「来源」区块，开源许可证与署名保留在仓库中。
+
+**当前提供 iOS 16+ Xcode 源码预览，暂无公开签名 IPA、TestFlight 或 App Store 下载。** 编译后按安装说明添加键盘；使用联网军师时需允许完全访问。键盘无法取得完整聊天历史或自动核实收件人，聊天 App 的第三方键盘支持也有差异。「屏幕捕获（实验）」尚未完成真机验收，优先使用系统快捷指令。
+
+本机使用 Xcode 27.0 完成模拟器与签名 iPhone 编译；225 项离线检查（核心 165、打字 33、OCR 27）、UI 语法和工程元数据检查通过。已在个人 iPhone 覆盖安装并启动；不同宿主 App 的完整交互和真实接口仍需分别验证。下方 Mac、Windows、Android Release 安装包不包含 iOS。
 
 ## 安卓图文教程：DeepSeek 配置与 Soul 使用
 

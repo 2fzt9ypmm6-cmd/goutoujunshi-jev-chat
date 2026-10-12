@@ -1,0 +1,46 @@
+name: iOS source preview
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "integrations/jev_ios/**"
+      - ".github/workflows/ios-build.yml"
+  pull_request:
+    paths:
+      - "integrations/jev_ios/**"
+      - ".github/workflows/ios-build.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  ios:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: integrations/jev_ios
+    steps:
+      - uses: actions/checkout@v4
+      - name: Offline core and project checks
+        run: bash tools/check.sh
+      - name: Build companion app and keyboard for simulator
+        run: >-
+          xcodebuild -project GoutouJunshi.xcodeproj -scheme GoutouJunshi
+          -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath build
+          CODE_SIGNING_ALLOWED=NO build
+      - name: Compile device targets without distribution signing
+        run: >-
+          xcodebuild -project GoutouJunshi.xcodeproj -scheme GoutouJunshi
+          -destination 'generic/platform=iOS'
+          -derivedDataPath build-device
+          CODE_SIGNING_ALLOWED=NO build
+      - name: Archive simulator app with executable permissions
+        run: ditto -c -k --keepParent build/Build/Products/Debug-iphonesimulator/GoutouJunshi.app build/goutoujunshi-ios-simulator-preview.zip
+      - name: Upload simulator app for development only
+        uses: actions/upload-artifact@v4
+        with:
+          name: goutoujunshi-ios-simulator-preview
+          path: integrations/jev_ios/build/goutoujunshi-ios-simulator-preview.zip
+          if-no-files-found: error

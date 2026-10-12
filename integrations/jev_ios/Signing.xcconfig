@@ -1,0 +1,10 @@
+// Configure these three values for your own Apple Developer team before installing.
+DEVELOPMENT_TEAM =
+GOUTOU_BUNDLE_ID = ai.goutoujunshi.chatios
+GOUTOU_APP_GROUP = group.ai.goutoujunshi.chatios
+
+// Both targets must use the SAME App Group and shared keychain group.
+GOUTOU_KEYCHAIN_GROUP = $(AppIdentifierPrefix)$(GOUTOU_BUNDLE_ID)
+
+// Optional device-specific signing, excluded from Git.
+#include? "Signing.local.xcconfig"

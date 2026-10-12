@@ -1,0 +1,8 @@
+{
+  "repository": "https://github.com/jev-chat/jev-chat-jarvis-ios",
+  "branch": "master",
+  "retrieved": "2026-10-08",
+  "commit": "f4b64cc655415091180e4c0573a2a82ca4319212",
+  "archive_sha256": "b1a464ecae14010768cf7576582c06ce2cd1326d3bb1580947266077c6339953",
+  "adapted": "Keyboard extension architecture, textDocumentProxy insertion, shared App Group, HTTP/URL conventions. Relationship strategy, prompts, ranking, UI and storage are implemented for goutoujunshi."
+}
