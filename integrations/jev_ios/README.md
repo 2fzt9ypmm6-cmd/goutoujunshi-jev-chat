@@ -173,7 +173,7 @@ Key 保存在两个 target 共用的本机 Keychain 条目中。当前对象与�
 
 产物分别位于 build/Build/Products/Debug-iphonesimulator/GoutouJunshi.app 和 build-device/Build/Products/Debug-iphoneos/GoutouJunshi.app；键盘和捕获扩展包含在 App 内的 PlugIns/GoutouKeyboard.appex 与 PlugIns/GoutouCapture.appex。
 
-仓库新增 ios-build.yml 工作流，供后续提交运行核心检查与 iOS SDK 编译；该工作流当前尚未在 GitHub 执行。未签名的模拟器产物不能安装到 iPhone。
+[iOS 自动构建](https://github.com/shengjidaguai-china/goutoujunshi-jev-chat/actions/workflows/ios-build.yml)运行离线检查、模拟器和未签名设备编译。2026-10-12 的[首次源码构建](https://github.com/shengjidaguai-china/goutoujunshi-jev-chat/actions/runs/38209076299)已全部通过，并归档模拟器 App；该产物只供开发使用，不能安装到 iPhone。真机安装仍需自己的有效签名。
 
 2026-10-11 入口修正（build 9）：用户反馈广播面板未弹出，不能据编译通过宣称直接截屏可用。顶部改为“识图”，默认说明系统截屏快捷指令；新增后台“截图交给键盘（本地）”动作、底部键盘裁剪与 90 秒超时反馈。103 项核心、33 项输入法、19 项 OCR 检查通过，模拟器和真机编译通过，并覆盖安装到个人 iPhone；快捷指令编辑与真机键盘接收仍待验收。
 
