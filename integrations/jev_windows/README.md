@@ -15,7 +15,7 @@ py -3.11 -m venv .venv
 .venv\Scripts\python main.py
 ```
 
-QQ 适配说明：按 QQNT 主面板标定（浅色皮肤、100% 显示缩放、默认列表宽度）；深色主题尽力兼容，独立聊天窗口与明显不合常规的窗口布局尚未覆盖。切换目标应用后采集会自动重启；QQ 或微信没打开时先打开主窗口再开启采集。
+QQ 适配说明：按 QQNT 主面板标定（浅色皮肤、100% 显示缩放、默认列表宽度）；**只保留单聊**（切到群聊会提示跳过、切回好友自动恢复）；深色主题尽力兼容，独立聊天窗口与明显不合常规的窗口布局尚未覆盖。切换目标应用后采集会自动重启；QQ 或微信没打开时先打开主窗口再开启采集。
 
 密钥写入当前 Windows 用户的 `GOUTOU_JEV_API_KEY`、`GOUTOU_DEEPSEEK_STRATEGY_KEY`、`GOUTOU_LLM_API_KEY` 和 `GOUTOU_OCR_API_KEY` 环境变量（按实际选择填写）；识图来源与回复来源相同时可以复用回复 Key。不会读取原版 Jev 安装时保存的 Key。其他设置写在本目录的 `config.json`，已被 Git 忽略。`build.bat` 可在 Windows 上生成可执行目录和 `dist/goutoujunshi-jev-chat-windows-preview.zip`；ZIP 解压后保持整个目录完整，从其中运行 `.exe`。数据使用见仓库根目录 [说明](../../PRIVACY.md)。
 
