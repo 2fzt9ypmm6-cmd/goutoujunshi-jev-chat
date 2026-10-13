@@ -21,6 +21,7 @@ from app.review import ReviewDialog
 from app.version import VERSION
 from core.engine import analyze
 from core.experience import details as generate_details, explain as explain_candidate, rewrite as rewrite_candidates
+from core.transcript import merge_transcript
 
 # {会话名: {history, result, rev, target, senders}}：每个会话各自的上下文、上次结果和版本号，互不串味
 # history 里是 [(who, text, name)]，engine 只认 her/me，name 是群里的发言人（单聊/自己说的是 None）；
@@ -219,7 +220,8 @@ def start_analyze(title, msgs):
     state["reviewing"] = True
     revision = chat_of(title)["rev"]
     try:
-        dialog = ReviewDialog(title, msgs, ov.win)
+        dialog = ReviewDialog(title, msgs, ov.win,
+                              history_of=lambda t=title: list(chat_of(t)["history"]))
         if not dialog.exec():
             ov.set_status("已取消本轮分析")
             return
@@ -337,6 +339,31 @@ def drain():
             ov.log(msg[1])
             if child is not None:  # 子进程已经不干活了，收掉引用，下次打开开关重开一个
                 stop_worker()
+            continue
+        if kind == "rescan":  # 开/恢复采集：子进程把当前窗口可见的记录全量发来 → 并进累计历史
+            _, title, rows, area = msg
+            state["area"] = area
+            state["chat"] = title
+            ov.set_chat(title)  # 点采集立刻显示当前会话，不等下一条消息
+            chat = chat_of(title)
+            old = list(chat["history"])
+            merged = merge_transcript(old, rows)
+            added = len(merged) - len(old)
+            chat["history"] = deque(merged, maxlen=60)
+            chat["rev"] += 1
+            for who, _text, name in merged:  # 发言人名册跟着重建（最近的排最前）
+                if who == "her" and name:
+                    if name in chat["senders"]:
+                        chat["senders"].remove(name)
+                    chat["senders"].insert(0, name)
+            if title == ov.current_chat():
+                ov.invalidate_replies()
+            ov.set_targets(title, chat["senders"], target_of(title))
+            if rows:
+                ov.set_status(f"已读取当前窗口 {len(rows)} 条记录" +
+                              (f"，累计 {added} 条新内容" if added > 0 else "（与已有记录重合）"), "success")
+            else:
+                ov.set_status("已连接当前会话，等待对方的新消息", "idle")
             continue
         _, title, new, area = msg
         state["area"] = area

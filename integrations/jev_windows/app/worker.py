@@ -10,7 +10,8 @@ import numpy as np
 
 from app import profiles, settings
 from app.capture import Capture, chat_area, unminimize
-from app.ocr import Reader, read_chat_title, similar, header_pixels
+from app.ocr import Reader, read_chat_title, header_pixels
+from core.transcript import similar
 
 
 def _err(q):
@@ -44,6 +45,7 @@ def run(q, hwnd, enabled, debug_on, stop=None, app=profiles.WECHAT):
     title, head = "", None  # 当前会话名 / 上一帧的头部像素
     last_area = None  # 上次发给父进程的 4 元组，变了才再发一次
     warned = False  # 消息区识别失败是否已经报过，拖窗口时别每帧刷一条
+    rescan = True  # 开采集/恢复采集后，把当前窗口可见的记录全量上报一次（翻旧消息后重开采集就靠它）
     while True:
         if stop is not None and stop.is_set():
             break
@@ -55,6 +57,7 @@ def run(q, hwnd, enabled, debug_on, stop=None, app=profiles.WECHAT):
             # 带超时地等：stop 来了也能及时走，不用被强杀
             while not (stop is not None and stop.is_set()) and not enabled.wait(0.5):
                 pass
+            rescan = True  # 恢复采集：重新看一眼当前窗口
             continue
         if cap is None:
             try:
@@ -109,6 +112,10 @@ def run(q, hwnd, enabled, debug_on, stop=None, app=profiles.WECHAT):
                     reader = readers[title]
                     lines = reader.read(full[y0:y1, x0:x1], bg)
                     new = reader.new_lines(lines)
+                    if rescan:
+                        rescan = False
+                        # 整段可见记录全量上报：父进程并进累计历史（上滑翻出的旧消息也补得进来）
+                        q.put(("rescan", title, [(w, t, n) for w, n, t, _ in lines], rect))
                     if new:
                         q.put(("lines", title, new, rect))
                 if debug_on.is_set():

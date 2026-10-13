@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """消息区截图 → 谁说了什么。RapidOCR 吃 numpy，不落盘。"""
-import difflib
 import re
 import time
 
@@ -8,6 +7,7 @@ import numpy as np
 from rapidocr_onnxruntime import RapidOCR
 
 from app import profiles
+from core.transcript import similar
 
 
 _ENGINE = None
@@ -107,11 +107,9 @@ def who_said(chat, box, app=profiles.WECHAT):
     return profiles.classify_bubble(app, bg, float(diff.max())), bg, ink_h
 
 
-def similar(a, b):
-    """同一段像素挪个位置 OCR 会抖（「傻逼了」↔「傻逼」、「不好意思」↔「不好竟思」），按相似度判同一条。"""
-    if a == b or difflib.SequenceMatcher(None, a, b).ratio() >= 0.75:
-        return True
-    return len(a) == len(b) >= 3 and sum(x != y for x, y in zip(a, b)) <= 1  # 短句错一个字
+def similar(a, b):  # 兼容旧引用（worker 从 core.transcript 取，这里保留同名再导出）
+    from core.transcript import similar as _similar
+    return _similar(a, b)
 
 
 class Reader:

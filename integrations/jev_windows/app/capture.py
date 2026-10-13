@@ -129,12 +129,21 @@ def chat_area_qq(full):
     if y_tb is None:
         y_tb = int(40 * scale)
     y_top = y_tb + int(50 * scale)
-    # 面板右缘：发送按钮右缘 + 23px（实测它和面板右缘的差就是这个数，侧栏开不开都成立）
+    # 面板右缘：找发送按钮 = 输入区那条最长的连续蓝色横条（QQ 品牌蓝实心块，~90px 宽）。
+    # 群里侧栏的成员徽章也是蓝的（实测「最右蓝像素」能到 795，但按钮并不在那儿），按最长横条才区分得开：
+    # 按钮一条就 ~90px，徽章只有 40px 上下。
     blue = np.abs(pixels - np.array([11, 184, 243])).sum(-1) <= 45
-    sys_, sxs = np.where(blue[H // 2:])
+    band = blue[max(0, H - int(66 * scale)): max(1, H - int(4 * scale))]
+    best_run, run_end = 0, None
+    for row in band:
+        run = 0
+        for x, v in enumerate(row):
+            run = run + 1 if v else 0
+            if run > best_run:
+                best_run, run_end = run, x
     x1 = W - 2
-    if len(sxs) >= 200 and (sxs.max() - sxs.min()) >= int(30 * scale):
-        x1 = min(W - 2, int(sxs.max()) + int(23 * scale))
+    if run_end is not None and best_run >= int(40 * scale):
+        x1 = min(W - 2, int(run_end) + int(23 * scale))
     if x1 - int(240 * scale) < 200:  # 面板窄得不像话（可能把别的小蓝块当成了按钮），回退整窗宽
         x1 = W - 2
     # 会话列表搜索框右缘 → 面板左边界（搜索框 + 右边的「+」按钮是一组，中间小缝合并；
