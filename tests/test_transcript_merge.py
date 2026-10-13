@@ -1,6 +1,7 @@
 import unittest
 
 from integrations.jev_windows.core.transcript import (format_review_rows, is_scrollback,
+                                                       looks_like_group_title,
                                                        merge_transcript, parse_review_rows,
                                                        similar, speaker_label)
 
@@ -90,6 +91,19 @@ class ReviewRowsTest(unittest.TestCase):
         self.assertEqual(speaker_label("her", "甲"), "甲")
         self.assertEqual(speaker_label("her", None), "her")
         self.assertEqual(speaker_label("me", "甲"), "me")
+
+
+
+class GroupTitleTest(unittest.TestCase):
+    def test_member_count_suffix_is_a_group(self):
+        self.assertTrue(looks_like_group_title("神之墓地3 (1835)"))
+        self.assertTrue(looks_like_group_title("初雪（151）"))
+
+    def test_plain_names_are_not_groups(self):
+        self.assertFalse(looks_like_group_title("乌斯托傲恩日月"))
+        self.assertFalse(looks_like_group_title("乌斯托傲恩日月7"))  # 结尾有数字但没有括号
+        self.assertFalse(looks_like_group_title("小分队（筹）"))      # 有括号但不是人数
+        self.assertFalse(looks_like_group_title(""))
 
 
 

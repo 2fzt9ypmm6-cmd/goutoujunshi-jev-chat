@@ -10,8 +10,8 @@ import numpy as np
 
 from app import profiles, settings
 from app.capture import Capture, chat_area, unminimize
-from app.ocr import Reader, read_chat_title, header_pixels
-from core.transcript import is_scrollback, similar
+from app.ocr import Reader, read_chat_title, header_pixels, strip_member_count
+from core.transcript import is_scrollback, looks_like_group_title, similar
 
 
 def _err(q):
@@ -46,6 +46,7 @@ def run(q, hwnd, enabled, debug_on, stop=None, app=profiles.WECHAT):
     last_area = None  # 上次发给父进程的 4 元组，变了才再发一次
     warned = False  # 消息区识别失败是否已经报过，拖窗口时别每帧刷一条
     rescan = True  # 开采集/恢复采集后，把当前窗口可见的记录全量上报一次（翻旧消息后重开采集就靠它）
+    group_mode, group_warned = False, False  # QQ 只保留单聊：群聊整帧跳过（切回好友自动恢复）
     while True:
         if stop is not None and stop.is_set():
             break
@@ -90,14 +91,30 @@ def run(q, hwnd, enabled, debug_on, stop=None, app=profiles.WECHAT):
                     crop = header_pixels(full, area, app)  # 头部：会话名在这里（QQ 是面板头部+标题栏两处）
                     if head is None or not (np.array_equal(crop[0], head[0]) and np.array_equal(crop[1], head[1])):  # 名字没动就别白跑一次 OCR
                         head = crop
-                        name = read_chat_title(full, area, app)
-                        # OCR 抖一下（「小分队」↔「小分认」）不能分裂出一个新会话
-                        name = next((k for k in readers if similar(k, name)), name) if name else ""
-                        # ponytail: 认不出就沿用上次；开头就认不出给个占位名，总比把消息全丢了强
-                        name = name or title or "当前会话"
-                        if name != title:
-                            title = name
-                            q.put(("chat", title))
+                        if app == profiles.QQ:
+                            raw = read_chat_title(full, area, app, keep_count=True)
+                            group_mode = looks_like_group_title(raw)
+                            if group_mode:
+                                # 只保留单聊（用户要求）：群聊整帧跳过，不报会话、不进记录、不累计
+                                title = ""
+                                if not group_warned:
+                                    q.put(("status", "当前是群聊，仅保留单聊；切到好友会话再试"))
+                                    group_warned = True
+                            else:
+                                group_warned = False  # 回到单聊，下次再进群再提示一次
+                                name = strip_member_count(raw)
+                        else:
+                            name = read_chat_title(full, area, app)
+                        if not group_mode:
+                            # OCR 抖一下（「小分队」↔「小分认」）不能分裂出一个新会话
+                            name = next((k for k in readers if similar(k, name)), name) if name else ""
+                            # ponytail: 认不出就沿用上次；开头就认不出给个占位名，总比把消息全丢了强
+                            name = name or title or "当前会话"
+                            if name != title:
+                                title = name
+                                q.put(("chat", title))
+                    if group_mode:
+                        continue  # 群聊帧：头部照算（才能发现切走），消息/累计/上报全跳过
                     ocr_provider = settings.ocr_provider()
                     if ocr_provider == "local":
                         if title not in readers or not isinstance(readers[title], Reader):

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import difflib
+import re
 
 
 def similar(a: str, b: str) -> bool:
@@ -9,6 +10,12 @@ def similar(a: str, b: str) -> bool:
     if a == b or difflib.SequenceMatcher(None, a, b).ratio() >= 0.75:
         return True
     return len(a) == len(b) >= 3 and sum(x != y for x, y in zip(a, b)) <= 1  # 短句错一个字
+
+
+def looks_like_group_title(title: str) -> bool:
+    """QQ 群聊：会话名带成员数后缀「（1835）」（面板头部/标题栏都带）；单聊一般没有这个后缀。
+    当前只保留单聊，识别到群就整帧跳过（回退成单聊自动恢复）。"""
+    return bool(re.search(r"[（(]\d+[)）]\s*$", str(title or "").strip()))
 
 
 def same_row(a, b) -> bool:

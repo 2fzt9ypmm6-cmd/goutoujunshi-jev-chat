@@ -22,17 +22,23 @@ def _engine():
     return _ENGINE
 
 
-def read_title(header):
+def strip_member_count(text: str) -> str:
+    """群聊的成员数「(422)」去掉，只留名字当 key。"""
+    return re.sub(r"\s*[（(]\d+[)）]\s*$", "", str(text).strip())
+
+
+def read_title(header, keep_count=False):
     """面板头部那一条截图 → 会话名（numpy RGB）。取最靠上的一行，同一行里取最左的
-    （右边是图标按钮，OCR 不出字；下面那行是公告）。群聊的成员数「(422)」去掉，只留名字当 key。
-    认不出返回 ""。一次约 60ms，所以调用方只在头部像素变了时才问。"""
+    （右边是图标按钮，OCR 不出字；下面那行是公告）。群聊的成员数「(422)」去掉，只留名字当 key；
+    keep_count=True 时不剥（QQ 用它判断当前是不是群聊）。认不出返回 ""。一次约 60ms，所以调用方只在头部像素变了时才问。"""
     res, _ = _engine()(header, use_cls=False)
     if not res:
         return ""
     first = min(res, key=lambda r: r[0][0][1])
     row = first[0][0][1] + (first[0][2][1] - first[0][0][1])  # 框底：顶在这之上的算同一行
     text = min((r for r in res if r[0][0][1] < row), key=lambda r: r[0][0][0])[1]
-    return re.sub(r"\s*[（(]\d+[)）]\s*$", "", text.strip())
+    text = text.strip()
+    return text if keep_count else strip_member_count(text)
 
 
 def title_crop(full, area, app=profiles.WECHAT):
@@ -60,16 +66,16 @@ def qq_pane_header(full, area):
     return full[y_pane + 4: max(y_pane + 12, y_top - 6), x0 + 6: min(x1, x0 + 460)]
 
 
-def read_chat_title(full, area, app=profiles.WECHAT):
+def read_chat_title(full, area, app=profiles.WECHAT, keep_count=False):
     """会话名。微信 = 面板头部（现状）。QQ = 先读聊天面板头部（群里名字在这里），没字再回退
-    标题栏（单聊名字只在标题栏）——只读标题栏会「切了会话不跟随」。"""
+    标题栏（单聊名字只在标题栏）——只读标题栏会「切了会话不跟随」。keep_count=True 保留「(人数)」后缀。"""
     if app != profiles.QQ:
         x0, y0, x1, y1, _bg, y_pane = area
-        return read_title(full[y_pane:y0, x0:x1])
-    name = read_title(qq_pane_header(full, area))
+        return read_title(full[y_pane:y0, x0:x1], keep_count=keep_count)
+    name = read_title(qq_pane_header(full, area), keep_count=keep_count)
     if name:
         return name
-    return read_title(title_crop(full, area, app))
+    return read_title(title_crop(full, area, app), keep_count=keep_count)
 
 
 def header_pixels(full, area, app=profiles.WECHAT):
