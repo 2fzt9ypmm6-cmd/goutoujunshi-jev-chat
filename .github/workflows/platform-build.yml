@@ -62,7 +62,7 @@ jobs:
       - run: python -m pip install -r requirements.txt pyinstaller
       - run: python -m compileall -q app core main.py
       - run: python -m core.draft
-      - run: python -c "import app.overlay, app.review, app.trend_ui, app.cloud_ocr, core.experience"
+      - run: python -c "import app.profiles, app.settings, app.capture, app.ocr, app.worker, app.fill, app.overlay, app.review, app.trend_ui, app.cloud_ocr, core.transcript, core.experience"
       - run: python check_ui.py
         env:
           QT_QPA_PLATFORM: offscreen
