@@ -53,6 +53,34 @@ def title_crop(full, area, app=profiles.WECHAT):
     return titlebar[:, lo:right]
 
 
+def qq_pane_header(full, area):
+    """QQ 聊天面板头部一条（标题栏下面、消息区上面）：群名常常只在这里出现（实测 Electron 标题栏
+    在群聊下还挂着上一个会话名），单聊时这里是空的。"""
+    x0, y_top, x1, y_in, _bg, y_pane = area
+    return full[y_pane + 4: max(y_pane + 12, y_top - 6), x0 + 6: min(x1, x0 + 460)]
+
+
+def read_chat_title(full, area, app=profiles.WECHAT):
+    """会话名。微信 = 面板头部（现状）。QQ = 先读聊天面板头部（群里名字在这里），没字再回退
+    标题栏（单聊名字只在标题栏）——只读标题栏会「切了会话不跟随」。"""
+    if app != profiles.QQ:
+        x0, y0, x1, y1, _bg, y_pane = area
+        return read_title(full[y_pane:y0, x0:x1])
+    name = read_title(qq_pane_header(full, area))
+    if name:
+        return name
+    return read_title(title_crop(full, area, app))
+
+
+def header_pixels(full, area, app=profiles.WECHAT):
+    """「头部变了才重认标题」的像素比对区：微信 = 面板头部一段；QQ = 面板头部 + 标题栏两段
+    （群里名字在面板头部、单聊名字在标题栏，两处都要盯，不然切到群聊时一处不动就漏了）。"""
+    x0, y0, x1, y1, _bg, y_pane = area
+    if app != profiles.QQ:
+        return (full[y_pane:y0, x0:x1], np.empty(0, dtype=np.uint8))
+    return (qq_pane_header(full, area), title_crop(full, area, app))
+
+
 def who_said(chat, box, app=profiles.WECHAT):
     """按 OCR 框里的颜色分类，不看 x 坐标。返回 (谁, 底色, 墨高)：
     先看底色平不平：框里众数颜色占比 <45% 就是图片（头像/照片/表情包）里的字 → None 丢掉。
@@ -114,7 +142,7 @@ class Reader:
             xs, ys = [p[0] for p in box], [p[1] for p in box]
             rect = (int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys)))
             if kind == "gray":
-                on_pane = np.abs(bg - pane_bg).sum() <= 6
+                on_pane = profiles.on_pane(self.app, bg, pane_bg)
                 taken = bool(on_pane and box[0][0] < 0.25 * W and len(text) <= 16
                              and not re.search("[:：]", text))
                 if taken:

@@ -10,7 +10,7 @@ import numpy as np
 
 from app import profiles, settings
 from app.capture import Capture, chat_area, unminimize
-from app.ocr import Reader, read_title, similar, title_crop
+from app.ocr import Reader, read_chat_title, similar, header_pixels
 
 
 def _err(q):
@@ -84,10 +84,10 @@ def run(q, hwnd, enabled, debug_on, stop=None, app=profiles.WECHAT):
                     if rect != last_area:
                         q.put(("area", rect))
                         last_area = rect
-                    crop = title_crop(full, area, app)  # 头部：会话名在这里（QQ 是窗口标题栏）
-                    if head is None or not np.array_equal(crop, head):  # 名字没动就别白跑一次 OCR
+                    crop = header_pixels(full, area, app)  # 头部：会话名在这里（QQ 是面板头部+标题栏两处）
+                    if head is None or not (np.array_equal(crop[0], head[0]) and np.array_equal(crop[1], head[1])):  # 名字没动就别白跑一次 OCR
                         head = crop
-                        name = read_title(crop)
+                        name = read_chat_title(full, area, app)
                         # OCR 抖一下（「小分队」↔「小分认」）不能分裂出一个新会话
                         name = next((k for k in readers if similar(k, name)), name) if name else ""
                         # ponytail: 认不出就沿用上次；开头就认不出给个占位名，总比把消息全丢了强

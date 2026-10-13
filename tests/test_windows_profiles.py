@@ -91,5 +91,17 @@ class NamesTest(unittest.TestCase):
         self.assertIn("QQ", profiles.window_error("qq"))
 
 
+class PaneToleranceTest(unittest.TestCase):
+    def test_wechat_tolerance_stays_tight(self):
+        self.assertTrue(profiles.on_pane("wechat", (240, 240, 240), (240, 240, 242)))
+        self.assertFalse(profiles.on_pane("wechat", (240, 240, 240), (245, 242, 238)))
+
+    def test_qq_tolerance_covers_the_gradient(self):
+        # QQ 皮肤整窗渐变：名字底下（左）和滚动条内侧（右）的底色差 ~14；微信的 6 会把群里发言人名字全滤掉
+        self.assertTrue(profiles.on_pane("qq", (227, 241, 252), (236, 246, 252)))
+
+    def test_qq_still_rejects_bubble_color(self):
+        self.assertFalse(profiles.on_pane("qq", (245, 250, 255), (227, 241, 252)))
+
 if __name__ == "__main__":
     unittest.main()

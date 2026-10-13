@@ -108,12 +108,14 @@ def chat_area_qq(full):
     颜色几乎一样，没有可用的色块边界，全靠结构台阶（标定：浅色皮肤、100% DPI、默认列表宽度）：
     - y_pane = 标题栏下边线：>=50% 的列出现 +2 亮度台阶的第一行（Electron 自绘标题栏，下面才是内容）
     - y_top = y_pane + 50：消息区顶（头部只有右上角一排工具图标，整行跳过）
-    - x0 = 会话列表搜索框右缘 + 16：跟着列表宽度走，拖过列表也不会把列表文字切进消息区；框认不出按 240px 兜底
-    - y_in = 输入框上边线：从上往下 >=85% 的列同时 +2 台阶、下一行整行平整，取最后一个
+    - x0 = 会话列表搜索框右缘 + 10：跟着列表宽度走，拖过列表也不会把列表文字切进消息区；框认不出按 240px 兜底
+    - x1 = 发送按钮（QQ 品牌蓝实心块）右缘 + 23：群里开「群成员/群公告」侧栏时聊天面板只占左边一大半，
+      按整窗宽会把侧栏吃进消息区（实测会让消息区直接认不出）；发送按钮永远贴着输入框右下角，侧栏开不开都稳
+    - y_in = 输入框上边线：在面板列内从上往下 >=85% 的列同时 +2 台阶、下一行整行平整，取最后一个
       （图片/宽气泡的上缘也是台阶，取最后一个就能跳过它们）
-    - 底色 = 右侧滚动条内侧的竖条带取中位数：渐变皮肤也不会被采样成渐变
+    - 底色 = 面板内右侧的竖条带取中位数：渐变皮肤也不会被采样成渐变，也不会采到侧栏
     认不出（窗口太小 / 布局没铺好）返回 None。
-    ponytail: 深色皮肤台阶可能反向，认不出就等下一帧；头部按 50px 算，缩放了按比例调。"""
+    ponytail: 深色皮肤台阶可能反向、禁言群的发送按钮是灰的（回退整窗宽），认不出就等下一帧。"""
     H, W = full.shape[:2]
     if H < 320 or W < 480:
         return None
@@ -127,6 +129,14 @@ def chat_area_qq(full):
     if y_tb is None:
         y_tb = int(40 * scale)
     y_top = y_tb + int(50 * scale)
+    # 面板右缘：发送按钮右缘 + 23px（实测它和面板右缘的差就是这个数，侧栏开不开都成立）
+    blue = np.abs(pixels - np.array([11, 184, 243])).sum(-1) <= 45
+    sys_, sxs = np.where(blue[H // 2:])
+    x1 = W - 2
+    if len(sxs) >= 200 and (sxs.max() - sxs.min()) >= int(30 * scale):
+        x1 = min(W - 2, int(sxs.max()) + int(23 * scale))
+    if x1 - int(240 * scale) < 200:  # 面板窄得不像话（可能把别的小蓝块当成了按钮），回退整窗宽
+        x1 = W - 2
     # 会话列表搜索框右缘 → 面板左边界（搜索框 + 右边的「+」按钮是一组，中间小缝合并；
     # 聊天面板顶部的「对方正在输入」之类窄元素离得远，不会被合进来）
     band = pixels[y_tb + int(15 * scale): y_tb + int(38 * scale), : W // 2]
@@ -149,16 +159,18 @@ def chat_area_qq(full):
             x0 = int(edge + 10 * scale)
     if not x0 or x0 < 60:
         x0 = int(240 * scale)
-    # 输入框上边线：从下往上找第一个“整行台阶 + 下方平整”，跳过图片/宽气泡的上缘
+    # 输入框上边线：只在面板列里找台阶（不含会话列表和右侧栏）
+    xl2, xr2 = x0 + int(20 * scale), max(x0 + 60, x1 - int(20 * scale))
+    dc2 = luma[1:, xl2:xr2] - luma[:-1, xl2:xr2]
+    d2, frac2 = dc2.mean(1), (dc2 >= 2).mean(1)
     y_in = None
     for i in range(H - 20, y_top + 40, -1):
-        if frac[i] >= 0.85 and d[i] >= 1.5 and luma[i + 1, xl:xr].std() <= 8:
+        if frac2[i] >= 0.85 and d2[i] >= 1.5 and luma[i + 1, xl2:xr2].std() <= 8:
             y_in = i + 1
             break
-    if y_in is None or y_in - y_top < 60 or W - 2 - x0 < 200:
+    if y_in is None or y_in - y_top < 60 or x1 - x0 < 200:
         return None
-    x1 = W - 2
-    strip = full[y_top:y_in, max(x0 + 10, W - int(48 * scale)): W - int(4 * scale)]
+    strip = full[y_top:y_in, max(x0 + 10, x1 - int(48 * scale)): x1 - int(4 * scale)]
     bg = np.median(strip.reshape(-1, 3), axis=0).astype(np.uint8)
     return x0, y_top, x1, y_in, bg, y_tb
 

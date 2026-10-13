@@ -17,6 +17,14 @@ _QQ_ME_CHROMA = 60
 FILL_DROP = {WECHAT: 40, QQ: 78}
 FILL_SIDE = 60  # 输入框文字区从消息区左缘往里多少像素（两边都靠左，避开表情/工具按钮）
 
+# 灰字框的底色与面板底色的容差：群聊发言人名字靠这个判定「印在面板底色上」。
+# 微信 6（现状）；QQ 皮肤整窗渐变，名字所在的左侧和采样用的右侧底色差 ~14，用 6 会把群里发言人全滤掉。
+_PANE_TOL = {WECHAT: 6, QQ: 20}
+
+
+def on_pane(app: str, box_bg, pane_bg) -> bool:
+    return sum(abs(int(box_bg[i]) - int(pane_bg[i])) for i in range(3)) <= _PANE_TOL.get(app, _PANE_TOL[WECHAT])
+
 
 def app_name(app: str) -> str:
     return APP_NAMES.get(app, APP_NAMES[WECHAT])
