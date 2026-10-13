@@ -18,7 +18,7 @@ from qfluentwidgets import (
     setCustomStyleSheet, setFont, setTheme, setThemeColor,
 )
 
-from app import settings
+from app import profiles, settings
 from app.version import VERSION
 from core import jev_client, llm, providers
 from core.questions import CHOICE_LABELS
@@ -458,6 +458,18 @@ class Overlay:
         box.setContentsMargins(16, 16, 16, 18)
         box.setSpacing(12)
         box.addWidget(_label("回复偏好", 16, "#304c3c", True))
+        app_label = _label("目标聊天应用", 13)
+        box.addWidget(app_label)
+        self.targetAppBox = ComboBox()
+        self.targetAppBox.setMinimumWidth(0)
+        self.targetAppBox.addItems(["微信", "QQ"])
+        self.targetAppBox.setAccessibleName("目标聊天应用")
+        app_label.setBuddy(self.targetAppBox)
+        box.addWidget(self.targetAppBox)
+        box.addWidget(self._hint(
+            "盯哪个应用的聊天窗口：微信，或 QQ（QQNT 主面板内嵌形态）。切换后采集自动重启；"
+            "QQ 的独立聊天窗口暂不支持。"
+        ))
         relation_label = _label("你们的关系", 13)
         box.addWidget(relation_label)
         self.relationshipBox = ComboBox()
@@ -794,6 +806,7 @@ class Overlay:
         index = next((i for i, (_, value) in enumerate(_RELATIONSHIPS) if value == relationship),
                      len(_RELATIONSHIPS) - 1)
         self.relationshipBox.setCurrentIndex(index)
+        self.targetAppBox.setCurrentIndex(1 if settings.target_app() == profiles.QQ else 0)
         self.relEdit.setText(relationship if _RELATIONSHIPS[index][1] is None else "")
         self.relEdit.setVisible(_RELATIONSHIPS[index][1] is None)
         self.styleEdit.setText(settings.style())
@@ -902,6 +915,7 @@ class Overlay:
                           ocr_provider_text=ocr_provider,
                           ocr_model_text=self.ocrModelEdit.text().strip(),
                           ocr_key_text=self.ocrKeyEdit.text().strip() or None,
+                          target_app_text=profiles.QQ if self.targetAppBox.currentIndex() == 1 else profiles.WECHAT,
                           check_update_on=self.updateSwitch.isChecked())
         except Exception:
             self._settings_feedback("保存失败，请检查配置文件是否可写后重试。", error=True)

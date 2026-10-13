@@ -13,6 +13,7 @@ import os
 import sys  # 只为下面这一处：打包后 __file__ 指向临时解包目录，config.json 得放在 exe 旁边才存得住
 
 from core.providers import CUSTOM, DRAFT_PROVIDERS, JEV_ENV, JEV_PROVIDERS, LEGACY, LLM_ENV, DEEPSEEK_STRATEGY_ENV, OCR_ENV
+from app import profiles
 
 _ROOT = (os.path.dirname(sys.executable) if getattr(sys, "frozen", False)
          else os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -36,6 +37,12 @@ def _read(name: str, default=None):
 
 def relationship() -> str:
     return str(_read("relationship") or _DEFAULT_RELATIONSHIP)
+
+def target_app() -> str:
+    """盯哪个聊天应用：wechat（默认，行为与以前完全一致）或 qq（QQNT 主面板内嵌形态）。
+    白名单之外的值一律回默认，改坏了 config.json 也不会把采集指到奇怪的东西上。"""
+    value = _read("target_app", profiles.WECHAT)
+    return value if value in profiles.TARGET_APPS else profiles.WECHAT
 
 def context() -> int:
     """参考上下文条数：起草和判断各看最近多少条消息。3~30，缺失/脏数据一律退默认值。"""
@@ -209,7 +216,7 @@ def save(relationship_text: str | None = None, context_n: int | None = None, *,
          strategy_provider_text: str | None = None, strategy_model_text: str | None = None,
          strategy_key_text: str | None = None, auto_analyze_on: bool | None = None,
          ocr_provider_text: str | None = None, ocr_model_text: str | None = None,
-         ocr_key_text: str | None = None) -> None:
+         ocr_key_text: str | None = None, target_app_text: str | None = None) -> None:
     """每个参数为空/None = 保留当前值。两把 key 写进程环境 + HKCU\\Environment，不写任何文件。"""
     jev = jev_provider_text if jev_provider_text in JEV_PROVIDERS else jev_provider()
     draft = draft_provider_text if draft_provider_text in DRAFT_PROVIDERS else draft_provider()
@@ -226,6 +233,7 @@ def save(relationship_text: str | None = None, context_n: int | None = None, *,
     data = {
         # 关系为空 = 只改别的开关（调试视图那种单项保存），别把它写没了
         "relationship": relationship_text or relationship(), "context": n,
+        "target_app": target_app_text if target_app_text in profiles.TARGET_APPS else target_app(),
         "style": keep(style_text, "style"),
         "jev_provider": jev, "jev_model": keep(jev_model_text, "jev_model"),
         "draft_provider": draft, "draft_model": keep(draft_model_text, "draft_model"),

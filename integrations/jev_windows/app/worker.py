@@ -8,9 +8,9 @@ import traceback
 
 import numpy as np
 
+from app import profiles, settings
 from app.capture import Capture, chat_area, unminimize
-from app.ocr import Reader, read_title, similar
-from app import settings
+from app.ocr import Reader, read_title, similar, title_crop
 
 
 def _err(q):
@@ -31,10 +31,11 @@ def _packet(full, area, title, reader, lines):
             "ocr_ms": reader.last_ms if reader else 0, "ts": time.time()}
 
 
-def run(q, hwnd, enabled, debug_on):
+def run(q, hwnd, enabled, debug_on, app=profiles.WECHAT):
     """enabled 置位=采集，清掉=暂停。暂停时停掉 WGC 会话（Windows 那圈黄色采集边框也跟着没了），
     恢复时重开一个；readers 一直留着，去重状态不丢，恢复后不会把屏幕上的旧消息再报一遍。
-    debug_on 置位才往队列里送整帧（一帧 2~3MB），关着一点额外活都不干。"""
+    debug_on 置位才往队列里送整帧（一帧 2~3MB），关着一点额外活都不干。
+    app 决定窗口读取规则（微信绿泡 / QQ 饱和度）和锚点算法，切应用由父进程重启子进程。"""
     ctypes.windll.user32.SetProcessDPIAware()
     cap = None
     readers = {}  # {会话名: Reader}，一个会话一套去重状态
@@ -51,7 +52,7 @@ def run(q, hwnd, enabled, debug_on):
             continue
         if cap is None:
             try:
-                cap = Capture(hwnd)
+                cap = Capture(hwnd, app)
             except Exception as e:
                 q.put(("dead", "无法开始采集：" + (" ".join(str(e).split())[:120] or type(e).__name__)))
                 enabled.clear()  # 自己清掉，下一圈就去等着，别一秒重试几十次
@@ -64,7 +65,7 @@ def run(q, hwnd, enabled, debug_on):
             full = cap.settled()
             if full is not None:
                 reader, lines = None, []  # 调试视图要用，消息区没认出来时就是空的
-                area = chat_area(full)  # 每次停稳都重算：拖完窗口微信布局会晚一拍才铺好，只按尺寸变化算一次会锁死
+                area = chat_area(full, app)  # 每次停稳都重算：拖完窗口布局会晚一拍才铺好，只按尺寸变化算一次会锁死
                 if area is None:
                     if not warned:
                         q.put(("status", "消息区认不出来（窗口太小？）"))
@@ -77,7 +78,7 @@ def run(q, hwnd, enabled, debug_on):
                     if rect != last_area:
                         q.put(("area", rect))
                         last_area = rect
-                    crop = full[y_pane:y0, x0:x1]  # 头部：会话名在这里
+                    crop = title_crop(full, area, app)  # 头部：会话名在这里（QQ 是窗口标题栏）
                     if head is None or not np.array_equal(crop, head):  # 名字没动就别白跑一次 OCR
                         head = crop
                         name = read_title(crop)
@@ -91,7 +92,7 @@ def run(q, hwnd, enabled, debug_on):
                     ocr_provider = settings.ocr_provider()
                     if ocr_provider == "local":
                         if title not in readers or not isinstance(readers[title], Reader):
-                            readers[title] = Reader()
+                            readers[title] = Reader(app)
                     else:
                         from app.cloud_ocr import CloudReader
                         model, key = settings.ocr_model(), settings.ocr_key()
@@ -109,7 +110,7 @@ def run(q, hwnd, enabled, debug_on):
         except Exception:
             _err(q)  # 一帧出错不退出
         time.sleep(0.05)
-    q.put(("dead", "采集停了（微信关了？）"))
+    q.put(("dead", f"采集停了（{profiles.app_name(app)}关了？）"))
     try:
         cap.wait()  # 采集线程若是报错死的，这里把错抛出来
     except Exception:

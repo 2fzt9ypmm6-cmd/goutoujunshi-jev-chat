@@ -7,6 +7,8 @@ import time
 import numpy as np
 from rapidocr_onnxruntime import RapidOCR
 
+from app import profiles
+
 
 _ENGINE = None
 
@@ -33,12 +35,29 @@ def read_title(header):
     return re.sub(r"\s*[（(]\d+[)）]\s*$", "", text.strip())
 
 
-def who_said(chat, box):
+def title_crop(full, area, app=profiles.WECHAT):
+    """给 read_title 的头部裁剪。微信 = 面板头部（现状）。QQ = Electron 自绘标题栏：
+    名字后面紧跟灰色的「编辑个性签名/个性签名」，整条 OCR 会连成一串（实测），所以先按深色像素
+    裁出名字段——名字是深色粗体，签名/天气是灰字；裁不出来就把整条交给 read_title 挑最上最左。"""
+    x0, y0, x1, y1, _bg, y_pane = area
+    if app != profiles.QQ:
+        return full[y_pane:y0, x0:x1]
+    titlebar = full[0:y_pane]
+    scale = (y_pane / 40) if y_pane else 1.0
+    luma = titlebar.astype(int) @ np.array([0.299, 0.587, 0.114])
+    band = luma[max(4, int(8 * scale)): max(6, y_pane - int(2 * scale))]
+    lo = int(55 * scale)
+    hi = min(titlebar.shape[1], int(360 * scale))
+    hits = np.where((band[:, lo:hi] < 90).any(0))[0] if hi > lo else []
+    right = int(hits.max()) + lo + int(8 * scale) if len(hits) else titlebar.shape[1]
+    return titlebar[:, lo:right]
+
+
+def who_said(chat, box, app=profiles.WECHAT):
     """按 OCR 框里的颜色分类，不看 x 坐标。返回 (谁, 底色, 墨高)：
     先看底色平不平：框里众数颜色占比 <45% 就是图片（头像/照片/表情包）里的字 → None 丢掉。
-    绿底 → me；非绿且文字对底色对比度 ≥150 → her；其余（引用块、群里的发言人名、时间戳、系统提示、
-    链接卡片描述——都是灰字，对比度 80~95）→ "gray"。
-    实测：气泡正文对比度 178~208，me 绿泡 142~150，灰字 ≤ 93。深浅主题都靠这套。
+    me / her / gray 的判定按应用走 profiles.classify_bubble——微信绿底 = me（气泡正文对比度实测
+    178~208，绿色 me 泡 142~150，灰字 ≤ 93）；QQ 高饱和度 = me（蓝泡、金黄主题泡都覆盖）。
     墨高 = 框里最长一段连续有字的行数（OCR 框对小字有固定 padding、还会蹭到上下行，不能拿框高比大小）。"""
     xs, ys = [p[0] for p in box], [p[1] for p in box]
     reg = chat[int(min(ys)):int(max(ys)), int(min(xs)):int(max(xs))].astype(int)
@@ -46,9 +65,10 @@ def who_said(chat, box):
         return None, None, 0
     vals, cnt = np.unique(reg.reshape(-1, 3), axis=0, return_counts=True)
     bg = vals[cnt.argmax()]
-    if cnt.max() / reg.shape[0] / reg.shape[1] < 0.45:
-        # 文字必须落在平底色上：WGC 帧是精确像素，气泡/面板里众数颜色占 0.56~0.82，
-        # 头像/照片/表情包里只有 0.1~0.3——那是图片里的字（头像上的「借仲夏夜之梦」之类），不是消息。
+    if not profiles.looks_like_text_region(app, bg, float(cnt.max()) / reg.shape[0] / reg.shape[1]):
+        # 文字必须落在平底色上：微信面板/气泡里众数颜色占 0.56~0.82，头像/照片/表情包里只有 0.1~0.3
+        # （那是图片里的字，比如头像上的「借仲夏夜之梦」）；QQ 短句密排会把我方气泡压到 0.2 出头，
+        # 高饱和底色另按 15% 放行——见 profiles.looks_like_text_region。
         # ponytail: 只对精确像素的帧成立；缩放/压缩过的截图（比如拿预览窗再截一次的图）底色会糊成几百种颜色，全会被当图片。
         return None, bg, 0
     diff = np.abs(reg @ [0.299, 0.587, 0.114] - bg @ [0.299, 0.587, 0.114])
@@ -56,9 +76,7 @@ def who_said(chat, box):
     for r in (diff > 60).any(axis=1):
         best = best + 1 if r else 0
         ink_h = max(ink_h, best)
-    if bg[1] > bg[0] + 40 and bg[1] > bg[2] + 40:
-        return "me", bg, ink_h
-    return ("her" if diff.max() >= 150 else "gray"), bg, ink_h
+    return profiles.classify_bubble(app, bg, float(diff.max())), bg, ink_h
 
 
 def similar(a, b):
@@ -71,8 +89,9 @@ def similar(a, b):
 class Reader:
     """一个会话一个 Reader：lh/seen 各自算各自的，切走再切回来不会把旧消息当新的重报一遍。"""
 
-    def __init__(self):
+    def __init__(self, app=profiles.WECHAT):
         self.ocr = _engine()
+        self.app = app  # 说话人判定按应用走（微信绿主导 / QQ 高饱和度）
         self.lh = None  # 正常气泡字高，头一帧定
         self.seen = []  # [(who, name, text)]，累计，封顶 500
         self.last_boxes = []  # 调试视图用：[(x0,y0,x1,y1,kind,text)]，消息区裁剪坐标
@@ -91,7 +110,7 @@ class Reader:
         # ponytail: 名字行被 OCR 漏掉时会挂到上一个人头上。
         name, raw = None, []
         for box, text, _ in sorted(res or [], key=lambda r: r[0][0][1]):
-            kind, bg, h = who_said(chat, box)
+            kind, bg, h = who_said(chat, box, self.app)
             xs, ys = [p[0] for p in box], [p[1] for p in box]
             rect = (int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys)))
             if kind == "gray":

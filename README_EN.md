@@ -1,4 +1,4 @@
-<!-- README_SYNC: source=working-tree; updated=2026-10-12 -->
+<!-- README_SYNC: source=working-tree; updated=2026-10-13 -->
 
 <p align="center"><a href="./README.md">简体中文</a> · English</p>
 
@@ -90,7 +90,7 @@ On Android 11 or later, download the APK and allow installation from that source
 
 ### Windows: extract the ZIP
 
-Requires Windows 10 version 1903 or later, or Windows 11, with WeChat for Windows 4.x. Download the preview ZIP, **extract the entire archive**, open the `goutoujunshi-jev-chat-windows` folder, and run `goutoujunshi-jev-chat-windows.exe`. The packaged build does not require a separate Python installation.
+Requires Windows 10 version 1903 or later, or Windows 11. The target app is selectable in settings: WeChat for Windows 4.x, or QQNT (QQ 9.x, embedded main panel). Download the preview ZIP, **extract the entire archive**, open the `goutoujunshi-jev-chat-windows` folder, and run `goutoujunshi-jev-chat-windows.exe`. The packaged build does not require a separate Python installation.
 
 In Settings, select **Jev or DeepSeek strategy judgment** and configure a reply provider. OCR can run locally with RapidOCR or send a cropped chat image to DeepSeek/OpenRouter. Open the intended WeChat conversation and keep the window visible. After capture, click “Review transcript and analyze” to correct text and speakers. The result also offers detailed analysis, a style rewrite, per-chat stage and goal settings, and a CSV chart window. You can copy a candidate or fill a draft. Filling depends on window coordinates; verify the conversation, recipient, and draft before sending it yourself. This build still needs Windows device validation. See the [Windows guide](integrations/jev_windows/README.md) for running from source.
 

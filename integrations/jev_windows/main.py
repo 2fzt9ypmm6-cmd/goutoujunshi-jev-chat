@@ -13,8 +13,8 @@ import threading
 import traceback
 from collections import deque
 
-from app import settings, update, worker
-from app.capture import find_wechat_hwnd
+from app import profiles, settings, update, worker
+from app.capture import find_app_hwnd
 from app.fill import fill
 from app.overlay import Overlay
 from app.review import ReviewDialog
@@ -27,7 +27,8 @@ from core.experience import details as generate_details, explain as explain_cand
 # 只是缓冲区，实际喂模型几条由设置里的「参考上下文」决定
 # senders：这个群里发过言的人，去重、最近的排最前；target：用户挑的回复对象（None = 跟着最近那个走）
 chats = {}
-state = {"area": None, "busy": False, "rerun": None, "hwnd": None, "chat": "", "reviewing": False}
+state = {"area": None, "busy": False, "rerun": None, "hwnd": None, "chat": "", "reviewing": False,
+         "app": None}
 results = queue.Queue()
 extras = queue.Queue()
 update_result = queue.Queue()  # 独立小队列，别跟 results 的 (kind, r, title, revision) 形状搅在一起
@@ -47,25 +48,27 @@ def target_of(title):
 
 
 def fill_reply(text):
+    app = state["app"] or settings.target_app()
+    name = profiles.app_name(app)
     if state["hwnd"] is None:  # 子进程重开过，hwnd 可能换了，用最新的
-        raise RuntimeError("未找到微信窗口，请确认微信已打开")
+        raise RuntimeError(f"未找到{name}窗口，请确认{name}已打开")
     if state["area"] is None:
-        raise RuntimeError("微信输入区域尚不可用，请确认微信聊天窗口可见（不要最小化）")
+        raise RuntimeError(f"{name}输入区域尚不可用，请确认{name}聊天窗口可见（不要最小化）")
     if not state["chat"] or ov.current_chat() != state["chat"]:
-        raise RuntimeError("会话已切换，先核对当前微信会话再填入")
-    if find_wechat_hwnd() != state["hwnd"]:
-        raise RuntimeError("微信窗口已变化，等待采集更新后重试")
+        raise RuntimeError(f"会话已切换，先核对当前{name}会话再填入")
+    if find_app_hwnd(app) != state["hwnd"]:
+        raise RuntimeError(f"{name}窗口已变化，等待采集更新后重试")
     if settings.reply_target() and ov.at_prefix_enabled():
         target = target_of(ov.current_chat())  # 填进去的是界面上正看着的那个会话的对象
         if target:
-            text = f"@{target} " + text  # 纯文本，微信不认成真正的 @，只是让群里看得出在跟谁说
-    fill(state["hwnd"], state["area"], text)
+            text = f"@{target} " + text  # 纯文本，不认成真正的 @，只是让群里看得出在跟谁说
+    fill(state["hwnd"], state["area"], text, app)
 
 
 def spawn_worker():
     """开一个采集子进程，它跟着 capture_on 走：置位=采集，清掉=暂停。"""
     p = multiprocessing.Process(target=worker.run,
-                                args=(q, state["hwnd"], capture_on, debug_on), daemon=True)
+                                args=(q, state["hwnd"], capture_on, debug_on, state["app"]), daemon=True)
     p.start()
     return p
 
@@ -94,24 +97,40 @@ def on_debug_closed():
 
 
 def on_toggle_capture(on):
-    """标题栏开关。启动时没找到微信就没有子进程，这会儿再找一次，找到了才真开得起来。"""
+    """标题栏开关。启动时没找到窗口就没有子进程，这会儿再找一次，找到了才真开得起来。"""
     global child
     if not on:
         capture_on.clear()
         return
     if child is None:
         try:
-            state["hwnd"] = find_wechat_hwnd()
+            state["hwnd"] = find_app_hwnd(state["app"])
         except RuntimeError:
-            ov.set_capture(False, "未找到微信窗口，打开微信后再开启采集")
+            ov.set_capture(False, f"未找到{profiles.app_name(state['app'])}窗口，打开后再开启采集")
             return
         child = spawn_worker()
     capture_on.set()
 
 
 def on_settings_saved():
-    """Refresh the child so newly saved OCR credentials are read immediately."""
+    """Refresh the child so newly saved OCR credentials are read immediately.
+    目标应用换过（微信 ↔ QQ）：旧窗口句柄和会话状态全部作废，重找窗口再重启采集。"""
     global child
+    if settings.target_app() != state["app"]:
+        state["app"] = settings.target_app()
+        state["area"] = None
+        state["chat"] = ""  # 填入前的会话核对会拦住旧会话名
+        try:
+            state["hwnd"] = find_app_hwnd(state["app"])
+        except RuntimeError:
+            state["hwnd"] = None
+            capture_on.clear()
+            if child is not None:
+                child.terminate()
+                child.join(timeout=3)
+                child = None
+            ov.set_capture(False, f"未找到{profiles.app_name(state['app'])}窗口，打开后再开启采集")
+            return
     if child is None:
         return
     child.terminate()
@@ -373,10 +392,11 @@ if __name__ == "__main__":  # Windows 的 spawn 会让子进程重新执行本�
                  on_explain=lambda index: _on_extra("explain", index),
                  result_of=lambda t: chats.get(t, {}).get("result"))
     child = dbg = None
+    state["app"] = settings.target_app()
     try:
-        state["hwnd"] = find_wechat_hwnd()
+        state["hwnd"] = find_app_hwnd(state["app"])
     except RuntimeError:
-        ov.set_capture(False, "未找到微信窗口，打开微信后再开启采集")
+        ov.set_capture(False, f"未找到{profiles.app_name(state['app'])}窗口，打开后再开启采集")
     else:
         capture_on.set()
         child = spawn_worker()
