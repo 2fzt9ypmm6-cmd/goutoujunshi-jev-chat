@@ -19,10 +19,11 @@ class ReviewDialog(QDialog):
         self.setStyleSheet(
             "QDialog { background: #f5f7f6; border: 1px solid #dce3de; border-radius: 14px; }"
         )
-        self.resize(640, 560)
+        width = parent.width() if parent is not None else 440  # 宽度跟主页面一致
+        self.resize(max(360, width), 600)
         if parent is not None:
             geo = parent.geometry()
-            self.move(geo.x() + max(0, (geo.width() - self.width()) // 2), geo.y() + 60)
+            self.move(geo.x() + max(0, (geo.width() - self.width()) // 2), geo.y() + 40)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(1, 1, 1, 1)
@@ -55,18 +56,18 @@ class ReviewDialog(QDialog):
         self.feedback = _label("", 12, _MUTED)
         body.addWidget(self.feedback)
 
-        actions = QHBoxLayout()
-        cancel = PushButton("取消")
-        cancel.clicked.connect(self.reject)
-        actions.addWidget(cancel)
-        actions.addStretch(1)
+        actions = QVBoxLayout()
+        actions.setSpacing(8)
         self.accumulateButton = PushButton("累计聊天记录")
         self.accumulateButton.setToolTip("把采集到的最新记录并入下方列表；新读到的排最前，相同内容只保留一份，你改过的行不动")
         self.accumulateButton.clicked.connect(self._accumulate)
-        actions.addWidget(self.accumulateButton)
         confirm = PrimaryPushButton("确认并分析")
         confirm.clicked.connect(self._confirm)
-        actions.addWidget(confirm)
+        cancel = PushButton("取消")
+        cancel.clicked.connect(self.reject)
+        for button in (self.accumulateButton, confirm, cancel):  # 全部按钮按主页面宽度整行铺满
+            button.setMinimumWidth(0)
+            actions.addWidget(button)
         body.addLayout(actions)
         outer.addLayout(body, 1)
 
