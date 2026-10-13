@@ -21,7 +21,7 @@ from app.review import ReviewDialog
 from app.version import VERSION
 from core.engine import analyze
 from core.experience import details as generate_details, explain as explain_candidate, rewrite as rewrite_candidates
-from core.transcript import merge_transcript
+from core.transcript import merge_transcript, similar
 
 # {会话名: {history, result, rev, target, senders}}：每个会话各自的上下文、上次结果和版本号，互不串味
 # history 里是 [(who, text, name)]，engine 只认 her/me，name 是群里的发言人（单聊/自己说的是 None）；
@@ -372,6 +372,8 @@ def drain():
         if title == ov.current_chat():  # 看的是别的会话就别把人家的候选划掉
             ov.invalidate_replies()
         for who, name, text in new:
+            if any(w == who and similar(t, text) for w, t, _n in chat["history"]):
+                continue  # 抖动重复上报 / 重扫后的增量兜底：同一条只进一次
             chat["history"].append((who, text, name))
             ov.log_message(who, text, name, chat=title)
             if who == "her" and name:  # 群里发过言的人，去重后最近的排最前

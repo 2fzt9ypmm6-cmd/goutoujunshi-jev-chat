@@ -34,10 +34,20 @@ class TranscriptMergeTest(unittest.TestCase):
         self.assertEqual(merge_transcript([], [("me", "x", None)]), [("me", "x", None)])
         self.assertEqual(merge_transcript([("me", "x", None)], []), [("me", "x", None)])
 
-    def test_newer_lines_missing_from_history_are_appended(self):
+    def test_fresh_batch_goes_to_the_front(self):
         old = [("me", "一", None), ("her", "二", None)]
         scan = [("her", "二", None), ("her", "二点五", None)]
-        self.assertEqual(self._texts(merge_transcript(old, scan)), ["一", "二", "二点五"])
+        self.assertEqual(self._texts(merge_transcript(old, scan)), ["二点五", "一", "二"])
+
+    def test_duplicate_rows_within_scan_kept_once(self):
+        scan = [("me", "在吗", None), ("me", "在吗", None), ("her", "在的", None)]
+        self.assertEqual(self._texts(merge_transcript([], scan)), ["在吗", "在的"])
+
+    def test_accumulating_the_same_window_twice_adds_nothing(self):
+        old = [("me", "A", None), ("her", "B", None)]
+        once = merge_transcript(old, [("me", "A", None), ("her", "B", None)])
+        twice = merge_transcript(once, [("me", "A", None), ("her", "B", None)])
+        self.assertEqual(self._texts(twice), ["A", "B"])
 
 
 class SimilarTest(unittest.TestCase):

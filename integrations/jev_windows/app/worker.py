@@ -114,9 +114,9 @@ def run(q, hwnd, enabled, debug_on, stop=None, app=profiles.WECHAT):
                     new = reader.new_lines(lines)
                     if rescan:
                         rescan = False
-                        # 整段可见记录全量上报：父进程并进累计历史（上滑翻出的旧消息也补得进来）
+                        # 全量重扫已经包含本轮所有可见行，这一帧就不要再发增量，不然父进程会记两遍
                         q.put(("rescan", title, [(w, t, n) for w, n, t, _ in lines], rect))
-                    if new:
+                    elif new:
                         q.put(("lines", title, new, rect))
                 if debug_on.is_set():
                     q.put(("debug", _packet(full, area, title, reader, lines)))

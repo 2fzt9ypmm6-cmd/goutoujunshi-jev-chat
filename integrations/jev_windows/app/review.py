@@ -80,7 +80,7 @@ class ReviewDialog(QDialog):
         actions.addWidget(cancel)
         actions.addStretch(1)
         self.accumulateButton = PushButton("累计聊天记录")
-        self.accumulateButton.setToolTip("把采集到的最新记录并入下方列表；你改过的行保持不动")
+        self.accumulateButton.setToolTip("把采集到的最新记录并入下方列表；新读到的排最前，相同内容只保留一份，你改过的行不动")
         self.accumulateButton.clicked.connect(self._accumulate)
         actions.addWidget(self.accumulateButton)
         confirm = PrimaryPushButton("确认并分析")
