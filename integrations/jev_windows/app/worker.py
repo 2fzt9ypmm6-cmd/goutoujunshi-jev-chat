@@ -11,7 +11,7 @@ import numpy as np
 from app import profiles, settings
 from app.capture import Capture, chat_area, unminimize
 from app.ocr import Reader, read_chat_title, header_pixels
-from core.transcript import similar
+from core.transcript import is_scrollback, similar
 
 
 def _err(q):
@@ -111,10 +111,18 @@ def run(q, hwnd, enabled, debug_on, stop=None, app=profiles.WECHAT):
                             readers[title] = CloudReader(ocr_provider, model, key)
                     reader = readers[title]
                     lines = reader.read(full[y0:y1, x0:x1], bg)
+                    # 滑动回看检测：采集中直接上滑翻旧消息，停稳后自动把新露出来、没见过的记录并进累计
+                    known_ys, unknown = [], []
+                    for w, n, t, y in lines:
+                        if reader._seen(w, n, t):
+                            known_ys.append(y)
+                        else:
+                            unknown.append((w, n, t, y))
+                    scrolled = is_scrollback(known_ys, unknown)
                     new = reader.new_lines(lines)
-                    if rescan:
+                    if rescan or scrolled:
                         rescan = False
-                        # 全量重扫已经包含本轮所有可见行，这一帧就不要再发增量，不然父进程会记两遍
+                        # 全量重扫已含本轮所有可见行，这一帧不要再发增量，不然父进程会记两遍
                         q.put(("rescan", title, [(w, t, n) for w, n, t, _ in lines], rect))
                     elif new:
                         q.put(("lines", title, new, rect))

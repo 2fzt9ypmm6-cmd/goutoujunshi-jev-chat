@@ -16,6 +16,14 @@ def same_row(a, b) -> bool:
     return a[0] == b[0] and similar(str(a[1]), str(b[1]))
 
 
+def is_scrollback(known_ys: list, unknown_rows: list) -> bool:
+    """滑动回看检测：可见内容里出现了「已知消息上方」的未知行（翻上去露出来的旧消息），
+    或者整屏都是没见过的（新会话刚打开）。命中时调用方按「重扫」处理，把整屏并进累计记录。
+    known_ys：可见行里已认识行的 y；unknown_rows：可见行里未知行的 (who, name, text, y)。"""
+    floor = max(known_ys) if known_ys else None
+    return any(floor is None or y < floor for _w, _n, _t, y in unknown_rows)
+
+
 def merge_transcript(old: list, scan: list) -> list:
     """累计合并：old = 已累计记录，scan = 刚扫到的当前窗口可见段（都是 (who, text, name) 行）。
     本次扫到、old 里没有的记录**放在最前面**（后采集的在前），相同的记录只保留一份——

@@ -1,6 +1,6 @@
 import unittest
 
-from integrations.jev_windows.core.transcript import merge_transcript, similar
+from integrations.jev_windows.core.transcript import is_scrollback, merge_transcript, similar
 
 
 class TranscriptMergeTest(unittest.TestCase):
@@ -49,6 +49,24 @@ class TranscriptMergeTest(unittest.TestCase):
         twice = merge_transcript(once, [("me", "A", None), ("her", "B", None)])
         self.assertEqual(self._texts(twice), ["A", "B"])
 
+
+class ScrollbackDetectTest(unittest.TestCase):
+    def test_new_message_below_known_region_is_not_scrollback(self):
+        known = [10.0, 20.0]
+        unknown = [("her", None, "新来的消息", 30.0)]
+        self.assertFalse(is_scrollback(known, unknown))
+
+    def test_unknown_row_above_known_region_is_scrollback(self):
+        known = [100.0, 120.0]
+        unknown = [("her", None, "翻上去露出来的旧消息", 40.0)]
+        self.assertTrue(is_scrollback(known, unknown))
+
+    def test_all_unknown_view_is_scrollback(self):
+        self.assertTrue(is_scrollback([], [("me", None, "整屏都是没见过的", 50.0)]))
+
+    def test_empty_unknown_is_not_scrollback(self):
+        self.assertFalse(is_scrollback([10.0], []))
+        self.assertFalse(is_scrollback([], []))
 
 class SimilarTest(unittest.TestCase):
     def test_ocr_jitter_is_similar(self):
