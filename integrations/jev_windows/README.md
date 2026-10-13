@@ -20,3 +20,5 @@ QQ 适配说明：按 QQNT 主面板标定（浅色皮肤、100% 显示缩放、
 密钥写入当前 Windows 用户的 `GOUTOU_JEV_API_KEY`、`GOUTOU_DEEPSEEK_STRATEGY_KEY`、`GOUTOU_LLM_API_KEY` 和 `GOUTOU_OCR_API_KEY` 环境变量（按实际选择填写）；识图来源与回复来源相同时可以复用回复 Key。不会读取原版 Jev 安装时保存的 Key。其他设置写在本目录的 `config.json`，已被 Git 忽略。`build.bat` 可在 Windows 上生成可执行目录和 `dist/goutoujunshi-jev-chat-windows-preview.zip`；ZIP 解压后保持整个目录完整，从其中运行 `.exe`。数据使用见仓库根目录 [说明](../../PRIVACY.md)。
 
 源码来源及第三方组件许可见本目录的 [LICENSE](LICENSE) 与 [NOTICE](NOTICE)。特别是 PySide6-Fluent-Widgets 会影响 Windows 发布包的许可条件；发布时须单独核对。
+
+持续集成：仓库的 GitHub Actions 启用后，推送会自动运行技能校验与三端构建（Windows / Android / Mac），构建产物在各 workflow 的 Artifacts 中下载。
