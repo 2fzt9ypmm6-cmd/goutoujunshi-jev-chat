@@ -28,7 +28,8 @@ from core.experience import details as generate_details, explain as explain_cand
 # senders：这个群里发过言的人，去重、最近的排最前；target：用户挑的回复对象（None = 跟着最近那个走）
 chats = {}
 state = {"area": None, "busy": False, "rerun": None, "hwnd": None, "chat": "", "reviewing": False,
-         "app": None}
+         "app": None, "worker_stop": None}
+capture_on = debug_on = None  # 采集开关/调试开关；由 spawn_worker 每次重启时换新，见那里的注释
 results = queue.Queue()
 extras = queue.Queue()
 update_result = queue.Queue()  # 独立小队列，别跟 results 的 (kind, r, title, revision) 形状搅在一起
@@ -65,12 +66,42 @@ def fill_reply(text):
     fill(state["hwnd"], state["area"], text, app)
 
 
-def spawn_worker():
-    """开一个采集子进程，它跟着 capture_on 走：置位=采集，清掉=暂停。"""
+def spawn_worker(active=True):
+    """开一个采集子进程。每次重启都换一套全新的同步对象（capture_on/debug_on/stop）：
+    被停掉的旧子进程就算死在信号量操作的中间，也污染不到新一代进程用的对象。
+    这里踩过大坑：旧代码在运行时共享同一组 Event，强杀子进程后打坏了它的内部计数，
+    下一次 capture_on.set() 会把主线程永久卡在 Condition 里（AppHang 实测，Windows 事件日志可见）。"""
+    global capture_on, debug_on
+    was_debug = debug_on is not None and debug_on.is_set()
+    capture_on = multiprocessing.Event()
+    debug_on = multiprocessing.Event()
+    stop = multiprocessing.Event()
+    if active:
+        capture_on.set()
+    if was_debug:
+        debug_on.set()
     p = multiprocessing.Process(target=worker.run,
-                                args=(q, state["hwnd"], capture_on, debug_on, state["app"]), daemon=True)
+                                args=(q, state["hwnd"], capture_on, debug_on, stop, state["app"]), daemon=True)
     p.start()
+    state["worker_stop"] = stop
     return p
+
+
+def stop_worker():
+    """先礼后兵地停掉采集子进程：stop 事件让它在循环里自己收摊（锁都在可控点释放），3 秒还不走
+    才 terminate。以前上来就 terminate，子进程可能死在共享信号量里把父进程的下一次 Event 操作卡死。"""
+    global child
+    if child is None:
+        return
+    stop = state.get("worker_stop")
+    if stop is not None:
+        stop.set()
+    child.join(timeout=3)
+    if child.is_alive():
+        child.terminate()
+        child.join(timeout=2)
+    child = None
+    state["worker_stop"] = None
 
 
 def set_debug(on):
@@ -97,10 +128,12 @@ def on_debug_closed():
 
 
 def on_toggle_capture(on):
-    """标题栏开关。启动时没找到窗口就没有子进程，这会儿再找一次，找到了才真开得起来。"""
+    """标题栏开关。开着再点=重新找一次目标窗口：换了窗口就顺势接过去（重启采集子进程），
+    窗口没变就只是恢复采集；没开过就找窗口后开起来。"""
     global child
     if not on:
-        capture_on.clear()
+        if capture_on is not None:
+            capture_on.clear()
         return
     if child is None:
         try:
@@ -108,8 +141,20 @@ def on_toggle_capture(on):
         except RuntimeError:
             ov.set_capture(False, f"未找到{profiles.app_name(state['app'])}窗口，打开后再开启采集")
             return
-        child = spawn_worker()
-    capture_on.set()
+        child = spawn_worker(True)
+        return
+    try:
+        hwnd = find_app_hwnd(state["app"])
+    except RuntimeError:
+        hwnd = state["hwnd"]  # 找不到就维持现状（窗口可能只是暂时被挡住/收起来）
+    if hwnd != state["hwnd"]:
+        state["hwnd"] = hwnd
+        state["area"] = None
+        state["chat"] = ""
+        stop_worker()
+        child = spawn_worker(True)
+    else:
+        capture_on.set()
 
 
 def on_settings_saved():
@@ -124,22 +169,20 @@ def on_settings_saved():
             state["hwnd"] = find_app_hwnd(state["app"])
         except RuntimeError:
             state["hwnd"] = None
-            capture_on.clear()
-            if child is not None:
-                child.terminate()
-                child.join(timeout=3)
-                child = None
+            if capture_on is not None:
+                capture_on.clear()
+            stop_worker()
             ov.set_capture(False, f"未找到{profiles.app_name(state['app'])}窗口，打开后再开启采集")
             return
     if child is None:
         return
-    child.terminate()
-    child.join(timeout=3)
+    active = capture_on.is_set()  # 重启前记住采集开没开，新进程按原状态来
+    stop_worker()
     state["area"] = None
     for chat in chats.values():
         chat["rev"] += 1
     ov.invalidate_replies()
-    child = spawn_worker()
+    child = spawn_worker(active)
     ov.set_status("设置已保存；识图服务已重新载入", "success")
 
 
@@ -283,7 +326,7 @@ def drain():
         if kind == "resumed":  # 子进程重新开始采集
             ov.set_capture(True)
             continue
-        if kind == "dead":  # 采集彻底停了（微信关了之类），这才是真的要清状态
+        if kind == "dead":  # 采集彻底停了（目标应用关了之类），这才是真的要清状态
             state["area"] = None
             for c in chats.values():  # 在跑的分析作废，回来的结果不再往界面上贴
                 c["rev"] += 1
@@ -293,9 +336,7 @@ def drain():
             ov.set_capture(False, msg[1])
             ov.log(msg[1])
             if child is not None:  # 子进程已经不干活了，收掉引用，下次打开开关重开一个
-                child.terminate()
-                child.join()
-                child = None
+                stop_worker()
             continue
         _, title, new, area = msg
         state["area"] = area
@@ -381,8 +422,6 @@ if __name__ == "__main__":  # Windows 的 spawn 会让子进程重新执行本�
     multiprocessing.freeze_support()  # 打包成 exe 后 spawn 出来的子进程会重跑一遍 exe，没这行就无限弹界面
     ctypes.windll.user32.SetProcessDPIAware()
     q = multiprocessing.Queue()
-    capture_on = multiprocessing.Event()  # 父子进程共用的开关，置位=采集
-    debug_on = multiprocessing.Event()  # 同上，置位=子进程往队列里送整帧给调试窗
     ov = Overlay(on_fill=fill_reply, on_toggle_capture=on_toggle_capture,
                  on_target_change=on_target_change, on_toggle_debug=set_debug,
                  on_manual_analyze=manual_analyze,
@@ -398,8 +437,7 @@ if __name__ == "__main__":  # Windows 的 spawn 会让子进程重新执行本�
     except RuntimeError:
         ov.set_capture(False, f"未找到{profiles.app_name(state['app'])}窗口，打开后再开启采集")
     else:
-        capture_on.set()
-        child = spawn_worker()
+        child = spawn_worker(True)
     if settings.debug_view():  # 上次开着就直接开回来
         set_debug(True)
     if not settings.has_strategy_key():
@@ -412,4 +450,8 @@ if __name__ == "__main__":  # Windows 的 spawn 会让子进程重新执行本�
         ov.run()
     finally:
         if child is not None:
-            child.terminate()
+            if state.get("worker_stop") is not None:
+                state["worker_stop"].set()  # 先请子进程自己退，退不掉就 terminate
+            child.join(timeout=1.5)
+            if child.is_alive():
+                child.terminate()

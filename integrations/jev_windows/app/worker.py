@@ -31,11 +31,13 @@ def _packet(full, area, title, reader, lines):
             "ocr_ms": reader.last_ms if reader else 0, "ts": time.time()}
 
 
-def run(q, hwnd, enabled, debug_on, app=profiles.WECHAT):
+def run(q, hwnd, enabled, debug_on, stop=None, app=profiles.WECHAT):
     """enabled 置位=采集，清掉=暂停。暂停时停掉 WGC 会话（Windows 那圈黄色采集边框也跟着没了），
     恢复时重开一个；readers 一直留着，去重状态不丢，恢复后不会把屏幕上的旧消息再报一遍。
     debug_on 置位才往队列里送整帧（一帧 2~3MB），关着一点额外活都不干。
-    app 决定窗口读取规则（微信绿泡 / QQ 饱和度）和锚点算法，切应用由父进程重启子进程。"""
+    app 决定窗口读取规则（微信绿泡 / QQ 饱和度）和锚点算法，切应用由父进程重启子进程。
+    stop 置位=父进程请它退出：在循环里自己收摊、把队列喂完再走，不等着被 terminate 打死在半路
+    （打死的后果见 main.stop_worker 的注释——共享信号量会被打坏，父进程下一次 Event 操作直接卡死）。"""
     ctypes.windll.user32.SetProcessDPIAware()
     cap = None
     readers = {}  # {会话名: Reader}，一个会话一套去重状态
@@ -43,12 +45,16 @@ def run(q, hwnd, enabled, debug_on, app=profiles.WECHAT):
     last_area = None  # 上次发给父进程的 4 元组，变了才再发一次
     warned = False  # 消息区识别失败是否已经报过，拖窗口时别每帧刷一条
     while True:
+        if stop is not None and stop.is_set():
+            break
         if not enabled.is_set():
             if cap is not None:
                 cap.stop()
                 cap = None
                 q.put(("paused",))
-            enabled.wait()
+            # 带超时地等：stop 来了也能及时走，不用被强杀
+            while not (stop is not None and stop.is_set()) and not enabled.wait(0.5):
+                pass
             continue
         if cap is None:
             try:
@@ -110,8 +116,22 @@ def run(q, hwnd, enabled, debug_on, app=profiles.WECHAT):
         except Exception:
             _err(q)  # 一帧出错不退出
         time.sleep(0.05)
-    q.put(("dead", f"采集停了（{profiles.app_name(app)}关了？）"))
-    try:
-        cap.wait()  # 采集线程若是报错死的，这里把错抛出来
+    if stop is not None and stop.is_set():
+        # 干净的主动退出（父进程在编排重启/关闭）：收掉 WGC，不报 dead，别让父进程清状态
+        if cap is not None:
+            try:
+                cap.stop()
+                cap.wait()
+            except Exception:
+                pass
+    else:
+        q.put(("dead", f"采集停了（{profiles.app_name(app)}关了？）"))
+        try:
+            cap.wait()  # 采集线程若是报错死的，这里把错抛出来
+        except Exception:
+            _err(q)
+    try:  # 队列的 feeder 还在后台线程里，先冲干净再退，父进程能收到最后一条
+        q.close()
+        q.join_thread()
     except Exception:
-        _err(q)
+        pass
