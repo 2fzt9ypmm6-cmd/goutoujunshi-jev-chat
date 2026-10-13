@@ -1,6 +1,8 @@
 import unittest
 
-from integrations.jev_windows.core.transcript import is_scrollback, merge_transcript, similar
+from integrations.jev_windows.core.transcript import (format_review_rows, is_scrollback,
+                                                       merge_transcript, parse_review_rows,
+                                                       similar, speaker_label)
 
 
 class TranscriptMergeTest(unittest.TestCase):
@@ -67,6 +69,29 @@ class ScrollbackDetectTest(unittest.TestCase):
     def test_empty_unknown_is_not_scrollback(self):
         self.assertFalse(is_scrollback([10.0], []))
         self.assertFalse(is_scrollback([], []))
+
+class ReviewRowsTest(unittest.TestCase):
+    def test_group_row_shows_sender_name(self):
+        lines = format_review_rows([("her", "晚上带带我", "森罗掌碑文"), ("me", "好", None)])
+        self.assertEqual(lines, ["对方（森罗掌碑文）：晚上带带我", "我：好"])
+
+    def test_single_chat_row_has_no_name(self):
+        self.assertEqual(format_review_rows([("her", "好呀", None)]), ["对方：好呀"])
+
+    def test_parse_name_form_back(self):
+        rows = parse_review_rows(["对方（森罗掌碑文）：晚上带带我", "我：好", "对方：在的"])
+        self.assertEqual(rows, [("her", "晚上带带我", "森罗掌碑文"), ("me", "好", None), ("her", "在的", None)])
+
+    def test_roundtrip_keeps_names(self):
+        rows = [("her", "A", "甲"), ("me", "B", None), ("her", "C", None)]
+        self.assertEqual(parse_review_rows(format_review_rows(rows)), rows)
+
+    def test_speaker_label(self):
+        self.assertEqual(speaker_label("her", "甲"), "甲")
+        self.assertEqual(speaker_label("her", None), "her")
+        self.assertEqual(speaker_label("me", "甲"), "me")
+
+
 
 class SimilarTest(unittest.TestCase):
     def test_ocr_jitter_is_similar(self):

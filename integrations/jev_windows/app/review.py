@@ -7,27 +7,7 @@ from qfluentwidgets import (FluentIcon as FIF, PlainTextEdit, PrimaryPushButton,
                             PushButton, setCustomStyleSheet)
 
 from app.overlay import _MUTED, _Surface, _TitleBar, _label, _tool
-from core.transcript import merge_transcript
-
-
-def _row_text(who, text):
-    return ("我：" if who == "me" else "对方：" if who == "her" else "") + str(text)
-
-
-def parse_rows(lines):
-    """编辑器各行 → [(who, text)]；不以「我：/对方：」开头的行原样保留（who 留空，不参与判重）。"""
-    parsed = []
-    for row in lines:
-        row = row.strip()
-        if not row:
-            continue
-        if row.startswith("我："):
-            parsed.append(("me", row[2:].strip()))
-        elif row.startswith("对方："):
-            parsed.append(("her", row[3:].strip()))
-        else:
-            parsed.append(("", row))
-    return parsed
+from core.transcript import format_review_rows, merge_transcript, parse_review_rows
 
 
 class ReviewDialog(QDialog):
@@ -59,14 +39,15 @@ class ReviewDialog(QDialog):
         body.setSpacing(10)
         body.addWidget(_label(f"会话：{title}", 13, "#304c3c", True))
         body.addWidget(_label(
-            "每行以「我：」或「对方：」开头；OCR 可能认错字、错分边或漏行，改好再分析。\n"
-            "在聊天窗口上滑翻出更早的消息后，回主界面点一次「采集」开关，再点「累计聊天记录」就能并入。", 12, _MUTED))
+            "每行以「我：」「对方：」或「对方（名字）：」开头；OCR 可能认错字、错分边或漏行，改好再分析。\n"
+            "群聊里对方的消息会带发言人名字（可以改），分析时一并带给模型；单聊不带名字。\n"
+            "在聊天窗口上滑翻出更早的消息会自动并入；翻完后也可以点「累计聊天记录」再拉一次。", 12, _MUTED))
 
         editor_card = _Surface()
         card_box = QVBoxLayout(editor_card)
         card_box.setContentsMargins(14, 12, 14, 12)
         self.editor = PlainTextEdit()
-        self.editor.setPlainText("\n".join(_row_text(row[0], row[1]) for row in messages))
+        self.editor.setPlainText("\n".join(format_review_rows(messages)))
         self.editor.setStyleSheet("PlainTextEdit { background: transparent; border: none; }")
         card_box.addWidget(self.editor)
         body.addWidget(editor_card, 1)
@@ -104,27 +85,26 @@ class ReviewDialog(QDialog):
         if not latest:
             self._feedback("还没有可累计的记录：先回主界面，在聊天窗口开着时点一次「采集」开关。", error=True)
             return
-        current = parse_rows(self.editor.toPlainText().splitlines())
-        merged = merge_transcript([(who, text, None) for who, text in current],
-                                  [tuple(row) for row in latest])
+        current = parse_review_rows(self.editor.toPlainText().splitlines())
+        merged = merge_transcript(current, [tuple(row) for row in latest])
         added = len(merged) - len(current)
-        self.editor.setPlainText("\n".join(_row_text(row[0], row[1]) for row in merged))
+        self.editor.setPlainText("\n".join(format_review_rows(merged)))
         if added > 0:
             self._feedback(f"已累计：新增 {added} 条，共 {len(merged)} 条。")
         else:
             self._feedback("没有新的记录（列表已是最新）。")
 
     def _confirm(self):
-        rows = parse_rows(self.editor.toPlainText().splitlines())
+        rows = parse_review_rows(self.editor.toPlainText().splitlines())
         parsed = []
-        for who, content in rows:
+        for who, content, name in rows:
             if who not in ("me", "her"):
-                self._feedback("每行须以「我：」或「对方：」开头（不需要的行直接删掉）。", error=True)
+                self._feedback("每行须以「我：」「对方：」或「对方（名字）：」开头（不需要的行直接删掉）。", error=True)
                 return
             if not content:
                 self._feedback("请删除空消息，或补上正文。", error=True)
                 return
-            parsed.append((who, content))
+            parsed.append((who, content, name) if name else (who, content))
         if not parsed or len(parsed) > 60:
             self._feedback("请保留 1 到 60 条相关消息。", error=True)
             return
