@@ -86,14 +86,16 @@ class CloudReader:
         self._digest, self._cached = digest, rows
         return rows
 
+    def _seen(self, who, name, body):
+        return any(old_who == who and old_name == name and
+                   difflib.SequenceMatcher(None, old_body, body).ratio() >= .75
+                   for old_who, old_name, old_body in self.seen)
+
     def new_lines(self, lines):
-        def known(who, body):
-            return any(old_who == who and difflib.SequenceMatcher(None, old_body, body).ratio() >= .75
-                       for old_who, _, old_body in self.seen)
-        floor = max((y for who, _, body, y in lines if known(who, body)), default=-1)
+        floor = max((y for who, name, body, y in lines if self._seen(who, name, body)), default=-1)
         fresh = [(who, name, body) for who, name, body, y in lines
-                 if y > floor and not known(who, body)]
+                 if y > floor and not self._seen(who, name, body)]
         self.seen.extend((who, name, body) for who, name, body, _ in lines
-                         if not known(who, body))
+                         if not self._seen(who, name, body))
         del self.seen[:-500]
         return fresh

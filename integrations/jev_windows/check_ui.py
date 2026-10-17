@@ -4,6 +4,7 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import main as windows_main  # smoke-import the actual Windows capture/fill orchestration
 from app.overlay import Overlay
 from app.review import ReviewDialog
 from app.trend_ui import TrendWindow

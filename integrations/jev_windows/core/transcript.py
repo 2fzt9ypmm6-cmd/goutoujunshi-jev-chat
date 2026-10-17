@@ -19,8 +19,10 @@ def looks_like_group_title(title: str) -> bool:
 
 
 def same_row(a, b) -> bool:
-    """两条记录算不算同一条：同 who + 文本相似（OCR 会抖）。"""
-    return a[0] == b[0] and similar(str(a[1]), str(b[1]))
+    """Match overlapping OCR rows without merging two named group participants."""
+    name_a = a[2] if len(a) > 2 else None
+    name_b = b[2] if len(b) > 2 else None
+    return a[0] == b[0] and name_a == name_b and similar(str(a[1]), str(b[1]))
 
 
 def speaker_label(who, name) -> str:
@@ -34,7 +36,7 @@ def format_review_rows(rows: list) -> list[str]:
     for row in rows:
         who, text = row[0], row[1]
         name = row[2] if len(row) > 2 else None
-        prefix = ("我：" if who == "me" else
+        prefix = ("" if not who else "我：" if who == "me" else
                   f"对方（{name}）：" if (who == "her" and name) else "对方：")
         out.append(prefix + str(text))
     return out
@@ -71,16 +73,66 @@ def is_scrollback(known_ys: list, unknown_rows: list) -> bool:
     return any(floor is None or y < floor for _w, _n, _t, y in unknown_rows)
 
 
-def merge_transcript(old: list, scan: list) -> list:
-    """累计合并：old = 已累计记录，scan = 刚扫到的当前窗口可见段（都是 (who, text, name) 行）。
-    本次扫到、old 里没有的记录**放在最前面**（后采集的在前），相同的记录只保留一份——
-    扫描内部先自去重，再整体对 old 判重。判重口径和 Reader 一致（同 who + similar 文本）。"""
+def merge_transcript(old: list, scan: list, *, unmatched="older") -> list:
+    """Merge overlapping, oldest-first windows; keep the engine's latest row last.
+
+    Matching rows anchor the two windows in time. With no overlap a scan is
+    treated as older scrollback unless the caller is resuming current capture.
+    Only adjacent duplicate OCR rows are collapsed inside the scanned window.
+    """
     old = [tuple(row) for row in old]
-    fresh, seen = [], []
+    scanned = []
     for row in scan:
         row = tuple(row)
-        if any(same_row(row, o) for o in old) or any(same_row(row, s) for s in seen):
-            continue
-        seen.append(row)
-        fresh.append(row)
-    return fresh + old
+        if not scanned or not same_row(row, scanned[-1]):
+            scanned.append(row)
+    n, m = len(old), len(scanned)
+    lengths = [[0] * (m + 1) for _ in range(n + 1)]
+    for i in range(n - 1, -1, -1):
+        for j in range(m - 1, -1, -1):
+            lengths[i][j] = (1 + lengths[i + 1][j + 1] if same_row(old[i], scanned[j])
+                             else max(lengths[i + 1][j], lengths[i][j + 1]))
+    if not lengths[0][0]:
+        return old + scanned if unmatched == "newer" else scanned + old
+    merged, i, j = [], 0, 0
+    while i < n and j < m:
+        if same_row(old[i], scanned[j]):
+            merged.append(old[i])  # retain the user's existing spelling/identity
+            i, j = i + 1, j + 1
+        elif lengths[i + 1][j] >= lengths[i][j + 1]:
+            merged.append(old[i])
+            i += 1
+        else:
+            merged.append(scanned[j])
+            j += 1
+    return merged + old[i:] + scanned[j:]
+
+
+def merge_reviewed_transcript(reviewed: list, source: list, latest: list) -> list:
+    """Reapply user corrections/deletions while incorporating new captured rows."""
+    def rows(items):
+        return [(r[0], r[1], r[2] if len(r) > 2 else None) for r in items]
+
+    reviewed, source, latest = rows(reviewed), rows(source), rows(latest)
+    merged = merge_transcript(source, latest, unmatched="newer")
+    replacements, insertions = {}, {}
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(
+            None, source, reviewed, autojunk=False).get_opcodes():
+        if tag == "insert":
+            insertions[i1] = reviewed[j1:j2]
+        elif tag == "equal":
+            for i, j in zip(range(i1, i2), range(j1, j2)):
+                replacements[i] = [reviewed[j]]
+        else:
+            for i in range(i1, i2):
+                replacements[i] = reviewed[j1:j2] if i == i1 else []
+    result, index = [], 0
+    for row in merged:
+        if index < len(source) and row == source[index]:
+            result.extend(insertions.get(index, []))
+            result.extend(replacements[index])
+            index += 1
+        else:
+            result.append(row)
+    result.extend(insertions.get(len(source), []))
+    return result

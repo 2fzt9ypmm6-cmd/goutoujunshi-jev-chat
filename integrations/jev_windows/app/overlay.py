@@ -1132,6 +1132,22 @@ class Overlay:
         """界面上正在看的会话（不一定是微信当前开着的那个）。"""
         return self._shown
 
+    def reset_chat_state(self):
+        """Remove the previous app's cached UI when switching WeChat/QQ."""
+        self.invalidate_replies()
+        self._chat = self._shown = ""
+        for cache in (self.feeds, self.hers, self.counts, self.targets):
+            cache.clear()
+        self.chatBox.blockSignals(True)
+        self.chatBox.clear()
+        self.chatBox.blockSignals(False)
+        self.feed.clear()
+        self.context.hide()
+        self._render_targets()
+        self._history_title()
+        self._follow_text()
+        self.show_cached(None)
+
     def set_chat(self, title):
         """微信切到了哪个会话：登记进下拉框并自动跟过去，不触发用户选择的回调。"""
         if not title:

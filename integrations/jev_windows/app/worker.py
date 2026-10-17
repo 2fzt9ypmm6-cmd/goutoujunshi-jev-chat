@@ -98,7 +98,7 @@ def run(q, hwnd, enabled, debug_on, stop=None, app=profiles.WECHAT):
                                 # 只保留单聊（用户要求）：群聊整帧跳过，不报会话、不进记录、不累计
                                 title = ""
                                 if not group_warned:
-                                    q.put(("status", "当前是群聊，仅保留单聊；切到好友会话再试"))
+                                    q.put(("blocked", "当前是群聊，仅保留单聊；切到好友会话再试"))
                                     group_warned = True
                             else:
                                 group_warned = False  # 回到单聊，下次再进群再提示一次
@@ -112,6 +112,7 @@ def run(q, hwnd, enabled, debug_on, stop=None, app=profiles.WECHAT):
                             name = name or title or "当前会话"
                             if name != title:
                                 title = name
+                                rescan = True
                                 q.put(("chat", title))
                     if group_mode:
                         continue  # 群聊帧：头部照算（才能发现切走），消息/累计/上报全跳过
@@ -138,9 +139,10 @@ def run(q, hwnd, enabled, debug_on, stop=None, app=profiles.WECHAT):
                     scrolled = is_scrollback(known_ys, unknown)
                     new = reader.new_lines(lines)
                     if rescan or scrolled:
+                        direction = "newer" if rescan else "older"
                         rescan = False
                         # 全量重扫已含本轮所有可见行，这一帧不要再发增量，不然父进程会记两遍
-                        q.put(("rescan", title, [(w, t, n) for w, n, t, _ in lines], rect))
+                        q.put(("rescan", title, [(w, t, n) for w, n, t, _ in lines], rect, direction))
                     elif new:
                         q.put(("lines", title, new, rect))
                 if debug_on.is_set():

@@ -58,8 +58,12 @@ def style() -> str:
 
 def profile_of(title: str) -> dict:
     """Opt-in per-conversation context; never stores a transcript."""
-    data = _read("profiles", {})
-    row = data.get(title, {}) if isinstance(data, dict) else {}
+    data = _read("app_profiles", {})
+    scoped = data.get(target_app(), {}) if isinstance(data, dict) else {}
+    row = scoped.get(title) if isinstance(scoped, dict) else None
+    if row is None and target_app() == profiles.WECHAT:
+        legacy = _read("profiles", {})
+        row = legacy.get(title, {}) if isinstance(legacy, dict) else {}
     if not isinstance(row, dict):
         row = {}
     return {"stage": row.get("stage", "未填写"), "goal": row.get("goal", "自然接话"),
@@ -73,11 +77,15 @@ def save_profile(title: str, stage: str, goal: str, background: str) -> None:
             data = json.load(handle)
     except (OSError, ValueError):
         data = {}
-    profiles = data.get("profiles", {})
-    if not isinstance(profiles, dict):
-        profiles = {}
-    profiles[title] = {"stage": stage, "goal": goal, "background": background}
-    data["profiles"] = profiles
+    app_profiles = data.get("app_profiles", {})
+    if not isinstance(app_profiles, dict):
+        app_profiles = {}
+    scoped = app_profiles.get(target_app(), {})
+    if not isinstance(scoped, dict):
+        scoped = {}
+    scoped[title] = {"stage": stage, "goal": goal, "background": background}
+    app_profiles[target_app()] = scoped
+    data["app_profiles"] = app_profiles
     with open(_CONFIG, "w", encoding="utf-8") as handle:
         json.dump(data, handle, ensure_ascii=False)
 
@@ -248,6 +256,7 @@ def save(relationship_text: str | None = None, context_n: int | None = None, *,
         "check_update": flag(check_update_on, check_update),
         "debug_view": flag(debug_view_on, debug_view),
         "profiles": _read("profiles", {}) if isinstance(_read("profiles", {}), dict) else {},
+        "app_profiles": _read("app_profiles", {}) if isinstance(_read("app_profiles", {}), dict) else {},
     }
     with open(_CONFIG, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False)

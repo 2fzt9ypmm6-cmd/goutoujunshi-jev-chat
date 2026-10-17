@@ -7,13 +7,17 @@ from qfluentwidgets import (FluentIcon as FIF, PlainTextEdit, PrimaryPushButton,
                             PushButton, setCustomStyleSheet)
 
 from app.overlay import _MUTED, _Surface, _TitleBar, _label, _tool
-from core.transcript import format_review_rows, merge_transcript, parse_review_rows
+from core.transcript import (format_review_rows, merge_reviewed_transcript,
+                             merge_transcript, parse_review_rows)
 
 
 class ReviewDialog(QDialog):
-    def __init__(self, title: str, messages: list, parent=None, history_of=None):
+    def __init__(self, title: str, messages: list, parent=None, history_of=None, revision_of=None):
         super().__init__(parent)
         self._history_of = history_of  # 取该会话最新累计记录的可调用对象 → [(who, text, name)]
+        self._revision_of = revision_of
+        self.reviewed_revision = revision_of() if revision_of else None
+        self._source_rows = list(messages)
         self.setWindowTitle(f"核对本轮对话 · {title}")  # 无障碍/任务栏标题保留
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setStyleSheet(
@@ -42,7 +46,7 @@ class ReviewDialog(QDialog):
         body.addWidget(_label(
             "每行以「我：」「对方：」或「对方（名字）：」开头；OCR 可能认错字、错分边或漏行，改好再分析。\n"
             "群聊里对方的消息会带发言人名字（可以改），分析时一并带给模型；单聊不带名字。\n"
-            "在聊天窗口上滑翻出更早的消息会自动并入；翻完后也可以点「累计聊天记录」再拉一次。", 12, _MUTED))
+            "上滑翻看旧消息后，点「累计聊天记录」将新采集内容并入本页，再核对并确认。", 12, _MUTED))
 
         editor_card = _Surface()
         card_box = QVBoxLayout(editor_card)
@@ -59,7 +63,7 @@ class ReviewDialog(QDialog):
         actions = QVBoxLayout()
         actions.setSpacing(8)
         self.accumulateButton = PushButton("累计聊天记录")
-        self.accumulateButton.setToolTip("把采集到的最新记录并入下方列表；新读到的排最前，相同内容只保留一份，你改过的行不动")
+        self.accumulateButton.setToolTip("按对话顺序合并最新采集记录，保留已核对的文字；合并后请再次核对")
         self.accumulateButton.clicked.connect(self._accumulate)
         confirm = PrimaryPushButton("确认并分析")
         confirm.clicked.connect(self._confirm)
@@ -87,9 +91,12 @@ class ReviewDialog(QDialog):
             self._feedback("还没有可累计的记录：先回主界面，在聊天窗口开着时点一次「采集」开关。", error=True)
             return
         current = parse_review_rows(self.editor.toPlainText().splitlines())
-        merged = merge_transcript(current, [tuple(row) for row in latest])
+        merged = merge_reviewed_transcript(current, self._source_rows, latest)
+        self._source_rows = merge_transcript(self._source_rows, latest, unmatched="newer")
         added = len(merged) - len(current)
         self.editor.setPlainText("\n".join(format_review_rows(merged)))
+        if self._revision_of:
+            self.reviewed_revision = self._revision_of()
         if added > 0:
             self._feedback(f"已累计：新增 {added} 条，共 {len(merged)} 条。")
         else:

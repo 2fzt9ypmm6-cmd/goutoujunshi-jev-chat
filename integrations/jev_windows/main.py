@@ -29,16 +29,28 @@ from core.transcript import merge_transcript, similar
 # senders：这个群里发过言的人，去重、最近的排最前；target：用户挑的回复对象（None = 跟着最近那个走）
 chats = {}
 state = {"area": None, "busy": False, "rerun": None, "hwnd": None, "chat": "", "reviewing": False,
-         "app": None, "worker_stop": None}
+         "app": None, "worker_stop": None, "epoch": 0}
 capture_on = debug_on = None  # 采集开关/调试开关；由 spawn_worker 每次重启时换新，见那里的注释
 results = queue.Queue()
 extras = queue.Queue()
 update_result = queue.Queue()  # 独立小队列，别跟 results 的 (kind, r, title, revision) 形状搅在一起
 
 
-def chat_of(title):
-    return chats.setdefault(title, {"history": deque(maxlen=60), "result": None, "rev": 0,
+def chat_of(title, app=None):
+    key = (app or state["app"] or settings.target_app(), title)
+    return chats.setdefault(key, {"history": deque(maxlen=60), "result": None, "rev": 0,
                                     "target": None, "senders": []})
+
+
+def invalidate_capture():
+    """Revoke fill permission and reject late model results from the old capture."""
+    state["area"], state["chat"], state["rerun"] = None, "", None
+    state["epoch"] += 1
+    state["busy"] = False
+    for chat in chats.values():
+        chat["rev"] += 1
+    ov.invalidate_replies()
+    ov.set_busy(False)
 
 
 def target_of(title):
@@ -72,11 +84,12 @@ def spawn_worker(active=True):
     被停掉的旧子进程就算死在信号量操作的中间，也污染不到新一代进程用的对象。
     这里踩过大坑：旧代码在运行时共享同一组 Event，强杀子进程后打坏了它的内部计数，
     下一次 capture_on.set() 会把主线程永久卡在 Condition 里（AppHang 实测，Windows 事件日志可见）。"""
-    global capture_on, debug_on
-    was_debug = debug_on is not None and debug_on.is_set()
+    global capture_on, debug_on, q
+    was_debug = settings.debug_view() or (debug_on is not None and debug_on.is_set())
     capture_on = multiprocessing.Event()
     debug_on = multiprocessing.Event()
     stop = multiprocessing.Event()
+    q = multiprocessing.Queue()  # no queued frames/locks from the previous worker
     if active:
         capture_on.set()
     if was_debug:
@@ -103,13 +116,16 @@ def stop_worker():
         child.join(timeout=2)
     child = None
     state["worker_stop"] = None
+    q.cancel_join_thread()
+    q.close()
 
 
 def set_debug(on):
     """调试视图开关：开 → 开窗 + 置位（子进程这才开始送帧，一帧 2~3MB）；关 → 清掉 + 收窗。"""
     global dbg
     if not on:
-        debug_on.clear()
+        if debug_on is not None:
+            debug_on.clear()
         if dbg is not None:
             dbg.hide()
         return
@@ -118,12 +134,14 @@ def set_debug(on):
 
         dbg = DebugWindow(on_close=on_debug_closed)
     dbg.show()
-    debug_on.set()
+    if debug_on is not None:
+        debug_on.set()
 
 
 def on_debug_closed():
     """用户直接关了调试窗 = 把开关也关了，否则设置页显示开着但没窗。"""
-    debug_on.clear()
+    if debug_on is not None:
+        debug_on.clear()
     ov.set_debug_switch(False)
     settings.save(debug_view_on=False)
 
@@ -150,8 +168,7 @@ def on_toggle_capture(on):
         hwnd = state["hwnd"]  # 找不到就维持现状（窗口可能只是暂时被挡住/收起来）
     if hwnd != state["hwnd"]:
         state["hwnd"] = hwnd
-        state["area"] = None
-        state["chat"] = ""
+        invalidate_capture()
         stop_worker()
         child = spawn_worker(True)
     else:
@@ -162,10 +179,11 @@ def on_settings_saved():
     """Refresh the child so newly saved OCR credentials are read immediately.
     目标应用换过（微信 ↔ QQ）：旧窗口句柄和会话状态全部作废，重找窗口再重启采集。"""
     global child
+    active = capture_on is not None and capture_on.is_set()
+    invalidate_capture()
     if settings.target_app() != state["app"]:
         state["app"] = settings.target_app()
-        state["area"] = None
-        state["chat"] = ""  # 填入前的会话核对会拦住旧会话名
+        ov.reset_chat_state()
         try:
             state["hwnd"] = find_app_hwnd(state["app"])
         except RuntimeError:
@@ -176,21 +194,18 @@ def on_settings_saved():
             ov.set_capture(False, f"未找到{profiles.app_name(state['app'])}窗口，打开后再开启采集")
             return
     if child is None:
+        if state["hwnd"] is not None and active:
+            child = spawn_worker(True)
         return
-    active = capture_on.is_set()  # 重启前记住采集开没开，新进程按原状态来
     stop_worker()
-    state["area"] = None
-    for chat in chats.values():
-        chat["rev"] += 1
-    ov.invalidate_replies()
     child = spawn_worker(active)
     ov.set_status("设置已保存；识图服务已重新载入", "success")
 
 
-def analyze_bg(msgs, title, revision, reply_to=None):
+def analyze_bg(msgs, title, revision, reply_to=None, epoch=None, relationship=None):
     """后台线程只跑网络调用，结果丢队列；UI 只在主线程的 tick 里动（Qt 不能跨线程碰）。"""
     try:
-        result = analyze(msgs, settings.profile_context(title), context=settings.context(),
+        result = analyze(msgs, relationship, context=settings.context(),
                                    model=settings.draft_model() or None,
                                    provider=settings.draft_provider(),
                                    base_url=settings.draft_base_url() or None,
@@ -202,9 +217,9 @@ def analyze_bg(msgs, title, revision, reply_to=None):
                                    strategy_model=settings.strategy_model(),
                                    strategy_key=settings.strategy_key())
         result["reviewed_messages"] = msgs
-        results.put(("ok", result, title, revision))
+        results.put(("ok", result, title, revision, epoch))
     except Exception as e:
-        results.put(("err", f"分析失败: {e}", title, revision))
+        results.put(("err", f"分析失败: {e}", title, revision, epoch))
 
 
 def check_update_bg():
@@ -218,14 +233,17 @@ def start_analyze(title, msgs):
     if state["reviewing"] or state["busy"]:
         return
     state["reviewing"] = True
-    revision = chat_of(title)["rev"]
+    epoch, app = state["epoch"], state["app"]
+    revision_of = lambda: chat_of(title, app)["rev"]
     try:
         dialog = ReviewDialog(title, msgs, ov.win,
-                              history_of=lambda t=title: list(chat_of(t)["history"]))
+                              history_of=lambda: list(chat_of(title, app)["history"]),
+                              revision_of=revision_of)
         if not dialog.exec():
             ov.set_status("已取消本轮分析")
             return
-        if revision != chat_of(title)["rev"] or state["chat"] != title:
+        if (epoch != state["epoch"] or dialog.reviewed_revision != revision_of()
+                or state["chat"] != title):
             ov.set_status("会话内容已变化，请重新核对后分析", "warning")
             return
         msgs = dialog.messages
@@ -240,7 +258,8 @@ def start_analyze(title, msgs):
     state["busy"] = True
     ov.set_busy(True)
     reply_to = target_of(title) if settings.reply_target() else None  # 开关关着就是今天的行为
-    threading.Thread(target=analyze_bg, args=(msgs, title, chat_of(title)["rev"], reply_to),
+    threading.Thread(target=analyze_bg, args=(msgs, title, revision_of(), reply_to,
+                                             epoch, settings.profile_context(title)),
                      daemon=True).start()
 
 
@@ -253,20 +272,20 @@ def manual_analyze():
     start_analyze(title, messages)
 
 
-def _extra_bg(kind, title, revision, result, index=None):
+def _extra_bg(kind, title, revision, result, index=None, epoch=None, relationship=None):
     try:
         kwargs = dict(provider=settings.draft_provider(), model=settings.draft_model(),
                       key=settings.llm_key(), base_url=settings.draft_base_url() or None)
         messages = result["reviewed_messages"]
         if kind == "details":
-            payload = generate_details(messages, settings.profile_context(title), result, **kwargs)
+            payload = generate_details(messages, relationship, result, **kwargs)
         elif kind == "explain":
-            payload = explain_candidate(messages, settings.profile_context(title), result, index, **kwargs)
+            payload = explain_candidate(messages, relationship, result, index, **kwargs)
         else:
             payload = rewrite_candidates(messages, result, **kwargs)
-        extras.put((kind, payload, title, revision))
+        extras.put((kind, payload, title, revision, epoch))
     except Exception as exc:
-        extras.put(("error", str(exc)[:180], title, revision))
+        extras.put(("error", str(exc)[:180], title, revision, epoch))
 
 
 def _on_extra(kind, index=None):
@@ -281,7 +300,8 @@ def _on_extra(kind, index=None):
         return
     ov.set_status("正在整理分析理由…" if kind == "explain" else
                   "正在整理详细分析…" if kind == "details" else "正在按你的原话调整口吻…", "busy")
-    threading.Thread(target=_extra_bg, args=(kind, title, chat["rev"], result, index), daemon=True).start()
+    threading.Thread(target=_extra_bg, args=(kind, title, chat["rev"], result, index,
+                     state["epoch"], settings.profile_context(title)), daemon=True).start()
 
 
 def on_target_change(title, name):
@@ -304,13 +324,15 @@ def drain():
     while True:
         try:
             msg = q.get_nowait()
-        except queue.Empty:
+        except (queue.Empty, ValueError, OSError):
             return
         kind = msg[0]
         if kind == "area":  # 只是窗口挪了位置，坐标跟着更新，别的什么都不用动
             state["area"] = msg[1]
             continue
         if kind == "chat":  # 微信切了会话，界面跟过去（用户正浏览别的会话时也跟，微信是准的）
+            if state["chat"] != msg[1]:
+                invalidate_capture()
             state["chat"] = msg[1]
             ov.set_chat(msg[1])
             continue
@@ -322,6 +344,11 @@ def drain():
             ov.set_status(msg[1], "warning")
             ov.log(msg[1])
             continue
+        if kind == "blocked":
+            invalidate_capture()
+            ov.set_status(msg[1], "warning")
+            ov.log(msg[1])
+            continue
         if kind == "paused":  # 子进程确认已暂停
             ov.set_capture(False)
             continue
@@ -329,25 +356,21 @@ def drain():
             ov.set_capture(True)
             continue
         if kind == "dead":  # 采集彻底停了（目标应用关了之类），这才是真的要清状态
-            state["area"] = None
-            for c in chats.values():  # 在跑的分析作废，回来的结果不再往界面上贴
-                c["rev"] += 1
-            state["rerun"] = None
-            ov.invalidate_replies()
-            ov.set_busy(False)
+            invalidate_capture()
             ov.set_capture(False, msg[1])
             ov.log(msg[1])
             if child is not None:  # 子进程已经不干活了，收掉引用，下次打开开关重开一个
                 stop_worker()
             continue
         if kind == "rescan":  # 开/恢复采集：子进程把当前窗口可见的记录全量发来 → 并进累计历史
-            _, title, rows, area = msg
+            _, title, rows, area = msg[:4]
+            direction = msg[4] if len(msg) > 4 else "older"
             state["area"] = area
             state["chat"] = title
             ov.set_chat(title)  # 点采集立刻显示当前会话，不等下一条消息
             chat = chat_of(title)
             old = list(chat["history"])
-            merged = merge_transcript(old, rows)
+            merged = merge_transcript(old, rows, unmatched=direction)
             added = len(merged) - len(old)
             chat["history"] = deque(merged, maxlen=60)
             chat["rev"] += 1
@@ -403,7 +426,9 @@ def tick():
             latest, url = update_result.get()
             ov.set_update(latest, url)
         while not extras.empty():
-            kind, payload, title, revision = extras.get()
+            kind, payload, title, revision, epoch = extras.get()
+            if epoch != state["epoch"]:
+                continue
             if title != state["chat"] or title != ov.current_chat() or revision != chat_of(title)["rev"]:
                 continue
             if kind == "error":
@@ -423,7 +448,9 @@ def tick():
                     chat_of(title)["result"] = updated
                     ov.show(updated)
         while not results.empty():
-            kind, r, title, revision = results.get()
+            kind, r, title, revision, epoch = results.get()
+            if epoch != state["epoch"]:
+                continue
             state["busy"] = False
             if state["rerun"]:  # 分析期间又来了新消息，接着跑最新的
                 (t, msgs), state["rerun"] = state["rerun"], None
@@ -458,7 +485,7 @@ if __name__ == "__main__":  # Windows 的 spawn 会让子进程重新执行本�
                  on_rewrite=lambda: _on_extra("rewrite"),
                  on_settings_saved=on_settings_saved,
                  on_explain=lambda index: _on_extra("explain", index),
-                 result_of=lambda t: chats.get(t, {}).get("result"))
+                 result_of=lambda t: chat_of(t).get("result"))
     child = dbg = None
     state["app"] = settings.target_app()
     try:

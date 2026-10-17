@@ -1,4 +1,4 @@
-<!-- README_SYNC: source=working-tree; updated=2026-10-13 -->
+<!-- README_SYNC: source=working-tree; updated=2026-10-17 -->
 
 <p align="center">简体中文 · <a href="./README_EN.md">English</a></p>
 
@@ -10,7 +10,21 @@
 
 **感谢 PR 贡献者 [@RayWangQvQ（在7楼）](https://github.com/RayWangQvQ)**：通过 [PR #1](https://github.com/shengjidaguai-china/goutoujunshi-jev-chat/pull/1) 修复安卓通用截图流程中的核对页消失和确认循环，并补充焦点恢复测试。他在 PR 中报告了 Soul 真机验证，详细署名见文末「贡献者与致谢」。
 
+**感谢 Windows 贡献者 [@wstaery](https://github.com/wstaery)**：通过 [PR #2](https://github.com/shengjidaguai-china/goutoujunshi-jev-chat/pull/2) 新增 QQNT 主面板单聊采集、核对记录累计和采集进程稳定性改进，并补充测试。详细署名见文末「贡献者与致谢」。
+
+## Windows 更新：QQ 单聊支持
+
+设置中可选择 **微信 / QQ**。QQ 支持 QQNT（QQ 9.x）主面板内嵌单聊：采集可见聊天、核对原文与双方身份、用 Jev 或 DeepSeek 判断策略、生成候选并填入草稿。发送由用户决定。切到 QQ 群聊时停止分析与填入，切回好友后恢复。
+
+- 翻看旧消息后可累计记录；合并按对话顺序保留最近 60 条。核对窗口里的手动修正与删除会保留，累计后仍须检查原文。
+- 微信与 QQ 的同名会话分别保存运行时上下文和关系资料；切换目标应用会清除上一应用的界面缓存，并作废未完成的分析。
+- 本轮补充云端识图兼容、群聊拦截、记录顺序、跨应用隔离和核对确认的离线回归测试。
+
+**QQ 适配以浅色皮肤、100% 显示缩放为基准，独立聊天窗口暂不支持。** 贡献者报告在 Windows 10 + QQNT 上完成识别与填入验证；维护者本轮完成离线回归，其他版本仍需实机验收。QQ 支持请运行源码，或下载 [Platform preview packages 的最新成功构建](https://github.com/shengjidaguai-china/goutoujunshi-jev-chat/actions/workflows/platform-build.yml)中的 Windows Artifacts；现有 Release ZIP 不会随源码合并自动更新。操作细节见 [Windows 使用说明](integrations/jev_windows/README.md)。
+
 ## iOS 键盘预览版
+
+iOS 安装说明：[简体中文](integrations/jev_ios/README.md) · [English](integrations/jev_ios/README_EN.md)。
 
 新增 [iOS 工程与安装说明](integrations/jev_ios/README.md)：主 App 配置模型、关系阶段和目标，聊天中切换狗头军师键盘，核对原文后分析，再把候选填入当前草稿。发送由你决定。
 
@@ -79,7 +93,7 @@ Android 仍处于预览阶段，微信仍不支持。自动测试覆盖上述逻
 | 平台 | 构建产物 | 当前状态 |
 | --- | --- | --- |
 | macOS | [`goutoujunshi-jev-chat-mac.zip`](https://github.com/shengjidaguai-china/goutoujunshi-jev-chat/releases/latest/download/goutoujunshi-jev-chat-mac.zip) | 源码 ZIP；解压后运行 `安装依赖.command`，再运行 `离线演示.command` 或 `启动.command`。需要 Python 3.12 和 uv，尚无签名 `.app`。 |
-| Windows | [`goutoujunshi-jev-chat-windows-preview.zip`](https://github.com/shengjidaguai-china/goutoujunshi-jev-chat/releases/latest/download/goutoujunshi-jev-chat-windows-preview.zip) | 可执行目录 ZIP；自动构建通过；支持微信 4.x 与 QQNT 主面板 |
+| Windows | [`goutoujunshi-jev-chat-windows-preview.zip`](https://github.com/shengjidaguai-china/goutoujunshi-jev-chat/releases/latest/download/goutoujunshi-jev-chat-windows-preview.zip) | 可执行目录 ZIP；QQ 支持请使用本轮 Actions 构建或源码，见上方 Windows 更新 |
 | Android | [`goutoujunshi-jev-chat-android-debug.apk`](https://github.com/shengjidaguai-china/goutoujunshi-jev-chat/releases/latest/download/goutoujunshi-jev-chat-android-debug.apk) | Android 11+ 调试预览包。**目前无法截取微信聊天画面，暂不支持微信。**  |
 
 三端现已接入核对原文、Jev／DeepSeek 策略判断、候选排序、详细分析、口吻改写、关系阶段与目标，以及 K 线示例和聊天 CSV 导入。截图展示的是 Mac 界面，Windows 和 Android 的布局及采集能力仍有差异；Android 微信截图目前不可用。各端的操作与已知限制见 [Windows 使用说明](integrations/jev_windows/README.md)和 [Android 使用说明](integrations/jev_android/README.md)。
@@ -92,7 +106,7 @@ Android 仍处于预览阶段，微信仍不支持。自动测试覆盖上述逻
 
 适用于 Windows 10 1903 及以上或 Windows 11，目标聊天应用可选微信 Windows 4.x 或 QQNT（QQ 9.x，主面板内嵌形态），在设置里切换。下载预览 ZIP，**完整解压**后进入 `goutoujunshi-jev-chat-windows` 文件夹，运行 `goutoujunshi-jev-chat-windows.exe`；这个打包版本无需另装 Python。
 
-首次打开设置，选择**目标聊天应用（微信／QQ）**、**Jev 或 DeepSeek 策略判断**，配置回复生成接口；识图可选 RapidOCR 本地、DeepSeek 或 OpenRouter。打开要处理的微信会话，保持聊天窗口可见；新消息出现后先点「核对原文并分析」，修正文字和说话人，再看候选。可打开详细分析、改写口吻、设置当前会话的阶段与目标，或在 K 线窗口导入聊天 CSV。候选可以复制或填入草稿；填入依赖当前窗口位置，使用前请确认会话、收件人和草稿内容，最后由你自己发送。此包尚待 Windows 实机验收。[Windows 使用说明](integrations/jev_windows/README.md)还列出了源码运行方式。
+首次打开设置，选择**目标聊天应用（微信／QQ）**、**Jev 或 DeepSeek 策略判断**，配置回复生成接口；识图可选 RapidOCR 本地、DeepSeek 或 OpenRouter。打开所选应用中的目标单聊，保持聊天窗口可见；新消息出现后先点「核对原文并分析」，修正文字和说话人，再看候选。可打开详细分析、改写口吻、设置当前会话的阶段与目标，或在 K 线窗口导入聊天 CSV。候选可以复制或填入草稿；填入依赖当前窗口位置，使用前请确认会话、收件人和草稿内容，最后由你自己发送。此包尚待 Windows 实机验收。[Windows 使用说明](integrations/jev_windows/README.md)还列出了源码运行方式。
 
 ### macOS：运行源码预览包
 
@@ -183,6 +197,8 @@ python3 -B -m unittest discover -s tests -q
 ## 贡献者与致谢
 
 感谢 [@RayWangQvQ](https://github.com/RayWangQvQ)（在7楼）提交 [PR #1](https://github.com/shengjidaguai-china/goutoujunshi-jev-chat/pull/1)，修复 Android 通用截图 OCR 中原文核对页消失、确认后循环返回的问题，并补充核对状态、焦点恢复和应用切换的单元测试。该 PR 已于 2026 年 10 月 4 日合并；贡献者在 PR 中报告已在 Soul 聊天页面完成真机验证。
+
+感谢 [@wstaery](https://github.com/wstaery) 提交 [PR #2](https://github.com/shengjidaguai-china/goutoujunshi-jev-chat/pull/2)，贡献 Windows QQNT 主面板单聊采集、目标应用切换、核对弹窗与聊天记录累计、采集进程退出和填入前窗口恢复改进，以及相关离线测试。QQ 的 Windows 10 实机识别与填入验证由贡献者在 PR 中报告；维护者在整合时补充回归修复与验证。
 
 本项目由狗头军师与 [jev-chat-jarvis](https://github.com/jev-chat/jev-chat-jarvis) 的聊天助手思路融合而来，感谢 Jev 项目及其贡献者提供的基础实现。各平台来源与许可证见上文说明。
 
