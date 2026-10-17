@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """父进程：只管界面。截图 + OCR 在 app/worker.py 的子进程里跑，队列里收新消息 →
 冒出新的对方消息才调 engine → 悬浮窗给 3 条候选 → 人点「填入」。发送永远手动。静默期零调用。
-上下文、结果、聊天记录都按会话名（子进程 OCR 头部标题得来）分开存，切会话不串味。
+上下文、结果、聊天记录按应用和会话名分开存，切会话或应用时不混用。
 
     pip install rapidocr-onnxruntime numpy windows-capture PySide6-Fluent-Widgets
 两个模型（判断 Jev / 起草语言模型）的来源和 key 在独立设置页填写，不用改代码。IDE 里直接 Run。
@@ -13,29 +13,44 @@ import threading
 import traceback
 from collections import deque
 
-from app import settings, update, worker
-from app.capture import find_wechat_hwnd
+from app import profiles, settings, update, worker
+from app.capture import find_app_hwnd
 from app.fill import fill
 from app.overlay import Overlay
 from app.review import ReviewDialog
 from app.version import VERSION
 from core.engine import analyze
 from core.experience import details as generate_details, explain as explain_candidate, rewrite as rewrite_candidates
+from core.transcript import merge_transcript, similar
 
-# {会话名: {history, result, rev, target, senders}}：每个会话各自的上下文、上次结果和版本号，互不串味
+# {(应用, 会话名): {history, result, rev, target, senders}}
 # history 里是 [(who, text, name)]，engine 只认 her/me，name 是群里的发言人（单聊/自己说的是 None）；
 # 只是缓冲区，实际喂模型几条由设置里的「参考上下文」决定
 # senders：这个群里发过言的人，去重、最近的排最前；target：用户挑的回复对象（None = 跟着最近那个走）
 chats = {}
-state = {"area": None, "busy": False, "rerun": None, "hwnd": None, "chat": "", "reviewing": False}
+state = {"area": None, "busy": False, "rerun": None, "hwnd": None, "chat": "", "reviewing": False,
+         "app": None, "worker_stop": None, "epoch": 0}
+capture_on = debug_on = None  # 采集开关/调试开关；由 spawn_worker 每次重启时换新，见那里的注释
 results = queue.Queue()
 extras = queue.Queue()
 update_result = queue.Queue()  # 独立小队列，别跟 results 的 (kind, r, title, revision) 形状搅在一起
 
 
-def chat_of(title):
-    return chats.setdefault(title, {"history": deque(maxlen=60), "result": None, "rev": 0,
+def chat_of(title, app=None):
+    key = (app or state["app"] or settings.target_app(), title)
+    return chats.setdefault(key, {"history": deque(maxlen=60), "result": None, "rev": 0,
                                     "target": None, "senders": []})
+
+
+def invalidate_capture():
+    """Revoke fill permission and reject late model results from the old capture."""
+    state["area"], state["chat"], state["rerun"] = None, "", None
+    state["epoch"] += 1
+    state["busy"] = False
+    for chat in chats.values():
+        chat["rev"] += 1
+    ov.invalidate_replies()
+    ov.set_busy(False)
 
 
 def target_of(title):
@@ -47,34 +62,70 @@ def target_of(title):
 
 
 def fill_reply(text):
+    app = state["app"] or settings.target_app()
+    name = profiles.app_name(app)
     if state["hwnd"] is None:  # 子进程重开过，hwnd 可能换了，用最新的
-        raise RuntimeError("未找到微信窗口，请确认微信已打开")
+        raise RuntimeError(f"未找到{name}窗口，请确认{name}已打开")
     if state["area"] is None:
-        raise RuntimeError("微信输入区域尚不可用，请确认微信聊天窗口可见（不要最小化）")
+        raise RuntimeError(f"{name}输入区域尚不可用，请确认{name}聊天窗口可见（不要最小化）")
     if not state["chat"] or ov.current_chat() != state["chat"]:
-        raise RuntimeError("会话已切换，先核对当前微信会话再填入")
-    if find_wechat_hwnd() != state["hwnd"]:
-        raise RuntimeError("微信窗口已变化，等待采集更新后重试")
+        raise RuntimeError(f"会话已切换，先核对当前{name}会话再填入")
+    if find_app_hwnd(app) != state["hwnd"]:
+        raise RuntimeError(f"{name}窗口已变化，等待采集更新后重试")
     if settings.reply_target() and ov.at_prefix_enabled():
         target = target_of(ov.current_chat())  # 填进去的是界面上正看着的那个会话的对象
         if target:
-            text = f"@{target} " + text  # 纯文本，微信不认成真正的 @，只是让群里看得出在跟谁说
-    fill(state["hwnd"], state["area"], text)
+            text = f"@{target} " + text  # 纯文本，不认成真正的 @，只是让群里看得出在跟谁说
+    fill(state["hwnd"], state["area"], text, app)
 
 
-def spawn_worker():
-    """开一个采集子进程，它跟着 capture_on 走：置位=采集，清掉=暂停。"""
+def spawn_worker(active=True):
+    """开一个采集子进程。每次重启都换一套全新的同步对象（capture_on/debug_on/stop）：
+    被停掉的旧子进程就算死在信号量操作的中间，也污染不到新一代进程用的对象。
+    这里踩过大坑：旧代码在运行时共享同一组 Event，强杀子进程后打坏了它的内部计数，
+    下一次 capture_on.set() 会把主线程永久卡在 Condition 里（AppHang 实测，Windows 事件日志可见）。"""
+    global capture_on, debug_on, q
+    was_debug = settings.debug_view() or (debug_on is not None and debug_on.is_set())
+    capture_on = multiprocessing.Event()
+    debug_on = multiprocessing.Event()
+    stop = multiprocessing.Event()
+    q = multiprocessing.Queue()  # no queued frames/locks from the previous worker
+    if active:
+        capture_on.set()
+    if was_debug:
+        debug_on.set()
     p = multiprocessing.Process(target=worker.run,
-                                args=(q, state["hwnd"], capture_on, debug_on), daemon=True)
+                                args=(q, state["hwnd"], capture_on, debug_on, stop, state["app"]), daemon=True)
     p.start()
+    state["worker_stop"] = stop
     return p
+
+
+def stop_worker():
+    """先礼后兵地停掉采集子进程：stop 事件让它在循环里自己收摊（锁都在可控点释放），3 秒还不走
+    才 terminate。以前上来就 terminate，子进程可能死在共享信号量里把父进程的下一次 Event 操作卡死。"""
+    global child
+    if child is None:
+        return
+    stop = state.get("worker_stop")
+    if stop is not None:
+        stop.set()
+    child.join(timeout=3)
+    if child.is_alive():
+        child.terminate()
+        child.join(timeout=2)
+    child = None
+    state["worker_stop"] = None
+    q.cancel_join_thread()
+    q.close()
 
 
 def set_debug(on):
     """调试视图开关：开 → 开窗 + 置位（子进程这才开始送帧，一帧 2~3MB）；关 → 清掉 + 收窗。"""
     global dbg
     if not on:
-        debug_on.clear()
+        if debug_on is not None:
+            debug_on.clear()
         if dbg is not None:
             dbg.hide()
         return
@@ -83,51 +134,78 @@ def set_debug(on):
 
         dbg = DebugWindow(on_close=on_debug_closed)
     dbg.show()
-    debug_on.set()
+    if debug_on is not None:
+        debug_on.set()
 
 
 def on_debug_closed():
     """用户直接关了调试窗 = 把开关也关了，否则设置页显示开着但没窗。"""
-    debug_on.clear()
+    if debug_on is not None:
+        debug_on.clear()
     ov.set_debug_switch(False)
     settings.save(debug_view_on=False)
 
 
 def on_toggle_capture(on):
-    """标题栏开关。启动时没找到微信就没有子进程，这会儿再找一次，找到了才真开得起来。"""
+    """标题栏开关。开着再点=重新找一次目标窗口：换了窗口就顺势接过去（重启采集子进程），
+    窗口没变就只是恢复采集；没开过就找窗口后开起来。"""
     global child
     if not on:
-        capture_on.clear()
+        if capture_on is not None:
+            capture_on.clear()
         return
     if child is None:
         try:
-            state["hwnd"] = find_wechat_hwnd()
+            state["hwnd"] = find_app_hwnd(state["app"])
         except RuntimeError:
-            ov.set_capture(False, "未找到微信窗口，打开微信后再开启采集")
+            ov.set_capture(False, f"未找到{profiles.app_name(state['app'])}窗口，打开后再开启采集")
             return
-        child = spawn_worker()
-    capture_on.set()
+        child = spawn_worker(True)
+        return
+    try:
+        hwnd = find_app_hwnd(state["app"])
+    except RuntimeError:
+        hwnd = state["hwnd"]  # 找不到就维持现状（窗口可能只是暂时被挡住/收起来）
+    if hwnd != state["hwnd"]:
+        state["hwnd"] = hwnd
+        invalidate_capture()
+        stop_worker()
+        child = spawn_worker(True)
+    else:
+        capture_on.set()
 
 
 def on_settings_saved():
-    """Refresh the child so newly saved OCR credentials are read immediately."""
+    """Refresh the child so newly saved OCR credentials are read immediately.
+    目标应用换过（微信 ↔ QQ）：旧窗口句柄和会话状态全部作废，重找窗口再重启采集。"""
     global child
+    active = capture_on is not None and capture_on.is_set()
+    invalidate_capture()
+    if settings.target_app() != state["app"]:
+        state["app"] = settings.target_app()
+        ov.reset_chat_state()
+        try:
+            state["hwnd"] = find_app_hwnd(state["app"])
+        except RuntimeError:
+            state["hwnd"] = None
+            if capture_on is not None:
+                capture_on.clear()
+            stop_worker()
+            ov.set_capture(False, f"未找到{profiles.app_name(state['app'])}窗口，打开后再开启采集")
+            return
     if child is None:
+        if state["hwnd"] is not None and active:
+            child = spawn_worker(True)
         return
-    child.terminate()
-    child.join(timeout=3)
-    state["area"] = None
-    for chat in chats.values():
-        chat["rev"] += 1
-    ov.invalidate_replies()
-    child = spawn_worker()
+    stop_worker()
+    child = spawn_worker(active)
     ov.set_status("设置已保存；识图服务已重新载入", "success")
 
 
-def analyze_bg(msgs, title, revision, reply_to=None):
+def analyze_bg(msgs, title, revision, reply_to=None, epoch=None, relationship=None):
     """后台线程只跑网络调用，结果丢队列；UI 只在主线程的 tick 里动（Qt 不能跨线程碰）。"""
     try:
-        result = analyze(msgs, settings.profile_context(title), context=settings.context(),
+        result = analyze(msgs, relationship, context=settings.context(),
                                    model=settings.draft_model() or None,
                                    provider=settings.draft_provider(),
                                    base_url=settings.draft_base_url() or None,
@@ -139,9 +217,9 @@ def analyze_bg(msgs, title, revision, reply_to=None):
                                    strategy_model=settings.strategy_model(),
                                    strategy_key=settings.strategy_key())
         result["reviewed_messages"] = msgs
-        results.put(("ok", result, title, revision))
+        results.put(("ok", result, title, revision, epoch))
     except Exception as e:
-        results.put(("err", f"分析失败: {e}", title, revision))
+        results.put(("err", f"分析失败: {e}", title, revision, epoch))
 
 
 def check_update_bg():
@@ -155,13 +233,17 @@ def start_analyze(title, msgs):
     if state["reviewing"] or state["busy"]:
         return
     state["reviewing"] = True
-    revision = chat_of(title)["rev"]
+    epoch, app = state["epoch"], state["app"]
+    revision_of = lambda: chat_of(title, app)["rev"]
     try:
-        dialog = ReviewDialog(title, msgs, ov.win)
+        dialog = ReviewDialog(title, msgs, ov.win,
+                              history_of=lambda: list(chat_of(title, app)["history"]),
+                              revision_of=revision_of)
         if not dialog.exec():
             ov.set_status("已取消本轮分析")
             return
-        if revision != chat_of(title)["rev"] or state["chat"] != title:
+        if (epoch != state["epoch"] or dialog.reviewed_revision != revision_of()
+                or state["chat"] != title):
             ov.set_status("会话内容已变化，请重新核对后分析", "warning")
             return
         msgs = dialog.messages
@@ -176,7 +258,8 @@ def start_analyze(title, msgs):
     state["busy"] = True
     ov.set_busy(True)
     reply_to = target_of(title) if settings.reply_target() else None  # 开关关着就是今天的行为
-    threading.Thread(target=analyze_bg, args=(msgs, title, chat_of(title)["rev"], reply_to),
+    threading.Thread(target=analyze_bg, args=(msgs, title, revision_of(), reply_to,
+                                             epoch, settings.profile_context(title)),
                      daemon=True).start()
 
 
@@ -189,20 +272,20 @@ def manual_analyze():
     start_analyze(title, messages)
 
 
-def _extra_bg(kind, title, revision, result, index=None):
+def _extra_bg(kind, title, revision, result, index=None, epoch=None, relationship=None):
     try:
         kwargs = dict(provider=settings.draft_provider(), model=settings.draft_model(),
                       key=settings.llm_key(), base_url=settings.draft_base_url() or None)
         messages = result["reviewed_messages"]
         if kind == "details":
-            payload = generate_details(messages, settings.profile_context(title), result, **kwargs)
+            payload = generate_details(messages, relationship, result, **kwargs)
         elif kind == "explain":
-            payload = explain_candidate(messages, settings.profile_context(title), result, index, **kwargs)
+            payload = explain_candidate(messages, relationship, result, index, **kwargs)
         else:
             payload = rewrite_candidates(messages, result, **kwargs)
-        extras.put((kind, payload, title, revision))
+        extras.put((kind, payload, title, revision, epoch))
     except Exception as exc:
-        extras.put(("error", str(exc)[:180], title, revision))
+        extras.put(("error", str(exc)[:180], title, revision, epoch))
 
 
 def _on_extra(kind, index=None):
@@ -217,7 +300,8 @@ def _on_extra(kind, index=None):
         return
     ov.set_status("正在整理分析理由…" if kind == "explain" else
                   "正在整理详细分析…" if kind == "details" else "正在按你的原话调整口吻…", "busy")
-    threading.Thread(target=_extra_bg, args=(kind, title, chat["rev"], result, index), daemon=True).start()
+    threading.Thread(target=_extra_bg, args=(kind, title, chat["rev"], result, index,
+                     state["epoch"], settings.profile_context(title)), daemon=True).start()
 
 
 def on_target_change(title, name):
@@ -240,13 +324,15 @@ def drain():
     while True:
         try:
             msg = q.get_nowait()
-        except queue.Empty:
+        except (queue.Empty, ValueError, OSError):
             return
         kind = msg[0]
         if kind == "area":  # 只是窗口挪了位置，坐标跟着更新，别的什么都不用动
             state["area"] = msg[1]
             continue
         if kind == "chat":  # 微信切了会话，界面跟过去（用户正浏览别的会话时也跟，微信是准的）
+            if state["chat"] != msg[1]:
+                invalidate_capture()
             state["chat"] = msg[1]
             ov.set_chat(msg[1])
             continue
@@ -258,25 +344,49 @@ def drain():
             ov.set_status(msg[1], "warning")
             ov.log(msg[1])
             continue
+        if kind == "blocked":
+            invalidate_capture()
+            ov.set_status(msg[1], "warning")
+            ov.log(msg[1])
+            continue
         if kind == "paused":  # 子进程确认已暂停
             ov.set_capture(False)
             continue
         if kind == "resumed":  # 子进程重新开始采集
             ov.set_capture(True)
             continue
-        if kind == "dead":  # 采集彻底停了（微信关了之类），这才是真的要清状态
-            state["area"] = None
-            for c in chats.values():  # 在跑的分析作废，回来的结果不再往界面上贴
-                c["rev"] += 1
-            state["rerun"] = None
-            ov.invalidate_replies()
-            ov.set_busy(False)
+        if kind == "dead":  # 采集彻底停了（目标应用关了之类），这才是真的要清状态
+            invalidate_capture()
             ov.set_capture(False, msg[1])
             ov.log(msg[1])
             if child is not None:  # 子进程已经不干活了，收掉引用，下次打开开关重开一个
-                child.terminate()
-                child.join()
-                child = None
+                stop_worker()
+            continue
+        if kind == "rescan":  # 开/恢复采集：子进程把当前窗口可见的记录全量发来 → 并进累计历史
+            _, title, rows, area = msg[:4]
+            direction = msg[4] if len(msg) > 4 else "older"
+            state["area"] = area
+            state["chat"] = title
+            ov.set_chat(title)  # 点采集立刻显示当前会话，不等下一条消息
+            chat = chat_of(title)
+            old = list(chat["history"])
+            merged = merge_transcript(old, rows, unmatched=direction)
+            added = len(merged) - len(old)
+            chat["history"] = deque(merged, maxlen=60)
+            chat["rev"] += 1
+            for who, _text, name in merged:  # 发言人名册跟着重建（最近的排最前）
+                if who == "her" and name:
+                    if name in chat["senders"]:
+                        chat["senders"].remove(name)
+                    chat["senders"].insert(0, name)
+            if title == ov.current_chat():
+                ov.invalidate_replies()
+            ov.set_targets(title, chat["senders"], target_of(title))
+            if rows:
+                ov.set_status(f"已读取当前窗口 {len(rows)} 条记录" +
+                              (f"，累计 {added} 条新内容" if added > 0 else "（与已有记录重合）"), "success")
+            else:
+                ov.set_status("已连接当前会话，等待对方的新消息", "idle")
             continue
         _, title, new, area = msg
         state["area"] = area
@@ -285,6 +395,8 @@ def drain():
         if title == ov.current_chat():  # 看的是别的会话就别把人家的候选划掉
             ov.invalidate_replies()
         for who, name, text in new:
+            if any(w == who and n == name and similar(t, text) for w, t, n in chat["history"]):
+                continue  # 抖动重复上报 / 重扫后的增量兜底：同一条只进一次
             chat["history"].append((who, text, name))
             ov.log_message(who, text, name, chat=title)
             if who == "her" and name:  # 群里发过言的人，去重后最近的排最前
@@ -314,7 +426,9 @@ def tick():
             latest, url = update_result.get()
             ov.set_update(latest, url)
         while not extras.empty():
-            kind, payload, title, revision = extras.get()
+            kind, payload, title, revision, epoch = extras.get()
+            if epoch != state["epoch"]:
+                continue
             if title != state["chat"] or title != ov.current_chat() or revision != chat_of(title)["rev"]:
                 continue
             if kind == "error":
@@ -334,7 +448,9 @@ def tick():
                     chat_of(title)["result"] = updated
                     ov.show(updated)
         while not results.empty():
-            kind, r, title, revision = results.get()
+            kind, r, title, revision, epoch = results.get()
+            if epoch != state["epoch"]:
+                continue
             state["busy"] = False
             if state["rerun"]:  # 分析期间又来了新消息，接着跑最新的
                 (t, msgs), state["rerun"] = state["rerun"], None
@@ -362,8 +478,6 @@ if __name__ == "__main__":  # Windows 的 spawn 会让子进程重新执行本�
     multiprocessing.freeze_support()  # 打包成 exe 后 spawn 出来的子进程会重跑一遍 exe，没这行就无限弹界面
     ctypes.windll.user32.SetProcessDPIAware()
     q = multiprocessing.Queue()
-    capture_on = multiprocessing.Event()  # 父子进程共用的开关，置位=采集
-    debug_on = multiprocessing.Event()  # 同上，置位=子进程往队列里送整帧给调试窗
     ov = Overlay(on_fill=fill_reply, on_toggle_capture=on_toggle_capture,
                  on_target_change=on_target_change, on_toggle_debug=set_debug,
                  on_manual_analyze=manual_analyze,
@@ -371,15 +485,15 @@ if __name__ == "__main__":  # Windows 的 spawn 会让子进程重新执行本�
                  on_rewrite=lambda: _on_extra("rewrite"),
                  on_settings_saved=on_settings_saved,
                  on_explain=lambda index: _on_extra("explain", index),
-                 result_of=lambda t: chats.get(t, {}).get("result"))
+                 result_of=lambda t: chat_of(t).get("result"))
     child = dbg = None
+    state["app"] = settings.target_app()
     try:
-        state["hwnd"] = find_wechat_hwnd()
+        state["hwnd"] = find_app_hwnd(state["app"])
     except RuntimeError:
-        ov.set_capture(False, "未找到微信窗口，打开微信后再开启采集")
+        ov.set_capture(False, f"未找到{profiles.app_name(state['app'])}窗口，打开后再开启采集")
     else:
-        capture_on.set()
-        child = spawn_worker()
+        child = spawn_worker(True)
     if settings.debug_view():  # 上次开着就直接开回来
         set_debug(True)
     if not settings.has_strategy_key():
@@ -392,4 +506,8 @@ if __name__ == "__main__":  # Windows 的 spawn 会让子进程重新执行本�
         ov.run()
     finally:
         if child is not None:
-            child.terminate()
+            if state.get("worker_stop") is not None:
+                state["worker_stop"].set()  # 先请子进程自己退，退不掉就 terminate
+            child.join(timeout=1.5)
+            if child.is_alive():
+                child.terminate()

@@ -1,0 +1,153 @@
+import unittest
+
+from integrations.jev_windows.core.transcript import (format_review_rows, is_scrollback,
+                                                       looks_like_group_title,
+                                                       merge_transcript, merge_reviewed_transcript, parse_review_rows,
+                                                       similar, speaker_label)
+
+
+class TranscriptMergeTest(unittest.TestCase):
+    def _texts(self, rows):
+        return [t for _, t, _ in rows]
+
+    def test_scrollback_overlapping_head_prepends_in_order(self):
+        old = [("me", "行，周六见", None), ("her", "好呀", None), ("me", "那到时候联系", None)]
+        scan = [("her", "在吗", None), ("me", "在的", None), ("her", "周六见吗", None), ("me", "行，周六见", None)]
+        merged = merge_transcript(old, scan)
+        self.assertEqual(self._texts(merged),
+                         ["在吗", "在的", "周六见吗", "行，周六见", "好呀", "那到时候联系"])
+
+    def test_no_overlap_treats_scan_as_older(self):
+        old = [("her", "好呀", None)]
+        scan = [("her", "更早的一句话", None)]
+        self.assertEqual(self._texts(merge_transcript(old, scan)), ["更早的一句话", "好呀"])
+
+    def test_latest_view_matches_tail_without_duplicates(self):
+        old = [("me", "一", None), ("her", "二", None), ("me", "三", None)]
+        scan = [("her", "二", None), ("me", "三", None)]
+        self.assertEqual(self._texts(merge_transcript(old, scan)), ["一", "二", "三"])
+
+    def test_scan_covering_editor_inserts_older_part_in_place(self):
+        old = [("me", "你好", None), ("her", "在的", None)]
+        scan = [("her", "更早的一条", None), ("me", "你好", None), ("her", "在的", None)]
+        self.assertEqual(self._texts(merge_transcript(old, scan)),
+                         ["更早的一条", "你好", "在的"])
+
+    def test_empty_sides_pass_through(self):
+        self.assertEqual(merge_transcript([], [("me", "x", None)]), [("me", "x", None)])
+        self.assertEqual(merge_transcript([("me", "x", None)], []), [("me", "x", None)])
+
+    def test_new_messages_follow_overlapping_history(self):
+        old = [("me", "一", None), ("her", "二", None)]
+        scan = [("her", "二", None), ("her", "二点五", None)]
+        self.assertEqual(self._texts(merge_transcript(old, scan)), ["一", "二", "二点五"])
+
+    def test_missing_middle_message_keeps_chronological_order(self):
+        old = [("me", "A", None), ("her", "C", None)]
+        scan = [("me", "A", None), ("me", "B", None), ("her", "C", None)]
+        self.assertEqual(self._texts(merge_transcript(old, scan)), ["A", "B", "C"])
+
+    def test_different_group_senders_are_not_deduplicated(self):
+        scan = [("her", "好", "甲"), ("her", "好", "乙")]
+        self.assertEqual(merge_transcript([], scan), scan)
+
+    def test_review_accumulation_keeps_edited_identity_and_text(self):
+        source = [("her", "周五再问我", None)]
+        reviewed = [("me", "周五再问我吧", None)]
+        latest = source + [("her", "下午有空", None)]
+        self.assertEqual(merge_reviewed_transcript(reviewed, source, latest),
+                         reviewed + [latest[-1]])
+
+    def test_review_accumulation_does_not_restore_deleted_ocr(self):
+        source = [("her", "系统噪声", None), ("me", "周末见", None)]
+        reviewed = source[1:]
+        latest = source + [("her", "几点", None)]
+        self.assertEqual(merge_reviewed_transcript(reviewed, source, latest),
+                         reviewed + [latest[-1]])
+
+    def test_review_accumulation_preserves_manual_insert(self):
+        source = [("her", "A", None), ("me", "B", None)]
+        reviewed = [source[0], ("her", "人工补充", None), source[1]]
+        latest = [("her", "更早的内容", None)] + source
+        self.assertEqual(merge_reviewed_transcript(reviewed, source, latest),
+                         [latest[0]] + reviewed)
+
+    def test_unknown_speaker_stays_invalid_after_formatting(self):
+        self.assertEqual(format_review_rows([("", "未标明说话人", None)]), ["未标明说话人"])
+
+    def test_duplicate_rows_within_scan_kept_once(self):
+        scan = [("me", "在吗", None), ("me", "在吗", None), ("her", "在的", None)]
+        self.assertEqual(self._texts(merge_transcript([], scan)), ["在吗", "在的"])
+
+    def test_accumulating_the_same_window_twice_adds_nothing(self):
+        old = [("me", "A", None), ("her", "B", None)]
+        once = merge_transcript(old, [("me", "A", None), ("her", "B", None)])
+        twice = merge_transcript(once, [("me", "A", None), ("her", "B", None)])
+        self.assertEqual(self._texts(twice), ["A", "B"])
+
+
+class ScrollbackDetectTest(unittest.TestCase):
+    def test_new_message_below_known_region_is_not_scrollback(self):
+        known = [10.0, 20.0]
+        unknown = [("her", None, "新来的消息", 30.0)]
+        self.assertFalse(is_scrollback(known, unknown))
+
+    def test_unknown_row_above_known_region_is_scrollback(self):
+        known = [100.0, 120.0]
+        unknown = [("her", None, "翻上去露出来的旧消息", 40.0)]
+        self.assertTrue(is_scrollback(known, unknown))
+
+    def test_all_unknown_view_is_scrollback(self):
+        self.assertTrue(is_scrollback([], [("me", None, "整屏都是没见过的", 50.0)]))
+
+    def test_empty_unknown_is_not_scrollback(self):
+        self.assertFalse(is_scrollback([10.0], []))
+        self.assertFalse(is_scrollback([], []))
+
+class ReviewRowsTest(unittest.TestCase):
+    def test_group_row_shows_sender_name(self):
+        lines = format_review_rows([("her", "晚上带带我", "森罗掌碑文"), ("me", "好", None)])
+        self.assertEqual(lines, ["对方（森罗掌碑文）：晚上带带我", "我：好"])
+
+    def test_single_chat_row_has_no_name(self):
+        self.assertEqual(format_review_rows([("her", "好呀", None)]), ["对方：好呀"])
+
+    def test_parse_name_form_back(self):
+        rows = parse_review_rows(["对方（森罗掌碑文）：晚上带带我", "我：好", "对方：在的"])
+        self.assertEqual(rows, [("her", "晚上带带我", "森罗掌碑文"), ("me", "好", None), ("her", "在的", None)])
+
+    def test_roundtrip_keeps_names(self):
+        rows = [("her", "A", "甲"), ("me", "B", None), ("her", "C", None)]
+        self.assertEqual(parse_review_rows(format_review_rows(rows)), rows)
+
+    def test_speaker_label(self):
+        self.assertEqual(speaker_label("her", "甲"), "甲")
+        self.assertEqual(speaker_label("her", None), "her")
+        self.assertEqual(speaker_label("me", "甲"), "me")
+
+
+
+class GroupTitleTest(unittest.TestCase):
+    def test_member_count_suffix_is_a_group(self):
+        self.assertTrue(looks_like_group_title("神之墓地3 (1835)"))
+        self.assertTrue(looks_like_group_title("初雪（151）"))
+
+    def test_plain_names_are_not_groups(self):
+        self.assertFalse(looks_like_group_title("乌斯托傲恩日月"))
+        self.assertFalse(looks_like_group_title("乌斯托傲恩日月7"))  # 结尾有数字但没有括号
+        self.assertFalse(looks_like_group_title("小分队（筹）"))      # 有括号但不是人数
+        self.assertFalse(looks_like_group_title(""))
+
+
+
+class SimilarTest(unittest.TestCase):
+    def test_ocr_jitter_is_similar(self):
+        self.assertTrue(similar("不好意思", "不好竟思"))
+        self.assertTrue(similar("傻逼了", "傻逼"))
+
+    def test_different_messages_are_not_similar(self):
+        self.assertFalse(similar("晚上好", "今天去哪吃"))
+
+
+if __name__ == "__main__":
+    unittest.main()

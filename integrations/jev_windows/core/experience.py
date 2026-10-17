@@ -6,6 +6,7 @@ import json
 import math
 
 from . import llm, providers
+from .transcript import speaker_label
 
 
 def _ask(system: str, payload: dict, *, provider: str, model: str, key: str,
@@ -18,7 +19,8 @@ def _ask(system: str, payload: dict, *, provider: str, model: str, key: str,
 
 
 def _transcript(messages: list) -> list[dict]:
-    return [{"speaker": row[0], "text": str(row[1])[:500]} for row in messages[-30:]]
+    return [{"speaker": speaker_label(row[0], row[2] if len(row) > 2 else None),
+             "text": str(row[1])[:500]} for row in messages[-30:]]
 
 
 def details(messages: list, relationship: str, result: dict, *, provider: str,

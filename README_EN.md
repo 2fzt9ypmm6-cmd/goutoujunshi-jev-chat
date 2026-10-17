@@ -1,4 +1,4 @@
-<!-- README_SYNC: source=working-tree; updated=2026-10-12 -->
+<!-- README_SYNC: source=working-tree; updated=2026-10-17 -->
 
 <p align="center"><a href="./README.md">简体中文</a> · English</p>
 
@@ -10,7 +10,21 @@ If it helps you, [Star the project](https://github.com/shengjidaguai-china/gouto
 
 **Thanks to PR contributor [@RayWangQvQ (在7楼)](https://github.com/RayWangQvQ)** for [PR #1](https://github.com/shengjidaguai-china/goutoujunshi-jev-chat/pull/1), fixing disappearing transcript review and confirmation loops in Android's generic screenshot flow, with focus-restoration tests. The contributor reported Soul device validation in the PR. Full attribution appears under “Contributors and acknowledgments.”
 
+**Thanks to Windows contributor [@wstaery](https://github.com/wstaery)** for [PR #2](https://github.com/shengjidaguai-china/goutoujunshi-jev-chat/pull/2): QQNT embedded single-chat capture, transcript accumulation, capture-process stability improvements, and tests. Full attribution appears under “Contributors and acknowledgments.”
+
+## Windows update: QQ single chats
+
+Choose **WeChat / QQ** in Settings. QQ support covers embedded single chats in the QQNT (QQ 9.x) main panel: capture visible messages, review text and speakers, judge strategy with Jev or DeepSeek, generate candidates, and fill a draft. Sending remains manual. Switching to a QQ group blocks analysis and filling until a single chat is selected again.
+
+- Accumulate older messages while scrolling; merged history stays chronological and retains the latest 60 rows. Manual corrections and deletions in the review dialog are preserved; check the combined transcript before confirming.
+- Same-named WeChat and QQ conversations have separate runtime context and relationship profiles. Switching apps clears the previous app’s UI cache and invalidates pending analysis.
+- Added offline regressions for cloud OCR compatibility, group blocking, chronological history, app isolation, and confirmation after accumulation.
+
+**QQ calibration targets a light theme at 100% display scaling; standalone chat windows are unsupported.** The contributor reported capture and filling on Windows 10 + QQNT. Maintainer verification in this update covers offline regressions; other client versions still need device testing. Use source or Windows Artifacts from the [latest successful Platform preview packages build](https://github.com/shengjidaguai-china/goutoujunshi-jev-chat/actions/workflows/platform-build.yml) for QQ support. Existing Release ZIPs are not automatically replaced when source changes merge. See the [Windows guide](integrations/jev_windows/README.md).
+
 ## iOS keyboard preview
+
+iOS installation guide: [English](integrations/jev_ios/README_EN.md) · [简体中文](integrations/jev_ios/README.md).
 
 The [iOS project and installation guide](integrations/jev_ios/README_EN.md) pairs a companion app for providers and relationship context with a chat keyboard. Review the transcript, analyze it, and confirm a candidate before inserting it into the current draft. Sending remains your choice.
 
@@ -79,7 +93,7 @@ Download the file for your platform from [GitHub Releases](https://github.com/sh
 | Platform | Artifact | Current status |
 | --- | --- | --- |
 | macOS | [`goutoujunshi-jev-chat-mac.zip`](https://github.com/shengjidaguai-china/goutoujunshi-jev-chat/releases/latest/download/goutoujunshi-jev-chat-mac.zip) | Source ZIP. Run `安装依赖.command`, then `离线演示.command` or `启动.command`. Requires Python 3.12 and uv; there is no signed `.app`. |
-| Windows | [`goutoujunshi-jev-chat-windows-preview.zip`](https://github.com/shengjidaguai-china/goutoujunshi-jev-chat/releases/latest/download/goutoujunshi-jev-chat-windows-preview.zip) | Executable-directory ZIP. Automated build passes; Windows device validation is pending. |
+| Windows | [`goutoujunshi-jev-chat-windows-preview.zip`](https://github.com/shengjidaguai-china/goutoujunshi-jev-chat/releases/latest/download/goutoujunshi-jev-chat-windows-preview.zip) | Executable-directory ZIP; use this update’s Actions build or source for QQ support. See the Windows update above. |
 | Android | [`goutoujunshi-jev-chat-android-debug.apk`](https://github.com/shengjidaguai-china/goutoujunshi-jev-chat/releases/latest/download/goutoujunshi-jev-chat-android-debug.apk) | Android 11+ debug preview. **It currently cannot capture WeChat chat screenshots, so WeChat is unsupported.** Other chat-app paths still need device validation. |
 
 All three builds now include transcript review, Jev or DeepSeek strategy judgment, ranked drafts, detailed analysis, style rewrites, relationship stage and goal, and example/CSV candlestick charts. The screenshots below show the Mac interface; layouts and capture capabilities differ by platform. Android still cannot capture WeChat. See the [Windows guide](integrations/jev_windows/README.md) and [Android guide](integrations/jev_android/README.md).
@@ -90,9 +104,9 @@ On Android 11 or later, download the APK and allow installation from that source
 
 ### Windows: extract the ZIP
 
-Requires Windows 10 version 1903 or later, or Windows 11, with WeChat for Windows 4.x. Download the preview ZIP, **extract the entire archive**, open the `goutoujunshi-jev-chat-windows` folder, and run `goutoujunshi-jev-chat-windows.exe`. The packaged build does not require a separate Python installation.
+Requires Windows 10 version 1903 or later, or Windows 11. The target app is selectable in settings: WeChat for Windows 4.x, or QQNT (QQ 9.x, embedded main panel). Download the preview ZIP, **extract the entire archive**, open the `goutoujunshi-jev-chat-windows` folder, and run `goutoujunshi-jev-chat-windows.exe`. The packaged build does not require a separate Python installation.
 
-In Settings, select **Jev or DeepSeek strategy judgment** and configure a reply provider. OCR can run locally with RapidOCR or send a cropped chat image to DeepSeek/OpenRouter. Open the intended WeChat conversation and keep the window visible. After capture, click “Review transcript and analyze” to correct text and speakers. The result also offers detailed analysis, a style rewrite, per-chat stage and goal settings, and a CSV chart window. You can copy a candidate or fill a draft. Filling depends on window coordinates; verify the conversation, recipient, and draft before sending it yourself. This build still needs Windows device validation. See the [Windows guide](integrations/jev_windows/README.md) for running from source.
+In Settings, select **Jev or DeepSeek strategy judgment** and configure a reply provider. OCR can run locally with RapidOCR or send a cropped chat image to DeepSeek/OpenRouter. Open the intended single chat in the selected app and keep its window visible. After capture, click “Review transcript and analyze” to correct text and speakers. The result also offers detailed analysis, a style rewrite, per-chat stage and goal settings, and a CSV chart window. You can copy a candidate or fill a draft. Filling depends on window coordinates; verify the conversation, recipient, and draft before sending it yourself. This build still needs Windows device validation. See the [Windows guide](integrations/jev_windows/README.md) for running from source.
 
 ### macOS: run the source preview
 
@@ -182,5 +196,7 @@ The repository bundles Goutoujunshi's behavior rules and selected knowledge. Its
 ## Contributors and acknowledgments
 
 Thanks to [@RayWangQvQ](https://github.com/RayWangQvQ) (在7楼) for [PR #1](https://github.com/shengjidaguai-china/goutoujunshi-jev-chat/pull/1), fixing transcript review disappearing or looping after confirmation in Android's generic screenshot OCR flow. The contribution includes unit tests for review state, focus restoration, and app switching. It was merged on October 4, 2026; the contributor reported device validation in a Soul chat in the PR.
+
+Thanks to [@wstaery](https://github.com/wstaery) for [PR #2](https://github.com/shengjidaguai-china/goutoujunshi-jev-chat/pull/2): Windows QQNT embedded single-chat capture, target-app switching, transcript-review UI and accumulation, graceful capture-process shutdown, restoring windows before draft filling, and offline tests. The contributor reported Windows 10 device validation of QQ capture and filling in the PR; the maintainer added regression fixes and checks during integration.
 
 This project combines Goutoujunshi with the chat-assistant approach in [jev-chat-jarvis](https://github.com/jev-chat/jev-chat-jarvis). Thanks to the Jev project and its contributors for the underlying implementations. Platform origins and licenses are described above.

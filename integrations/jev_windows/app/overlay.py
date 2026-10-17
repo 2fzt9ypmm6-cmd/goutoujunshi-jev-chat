@@ -18,7 +18,7 @@ from qfluentwidgets import (
     setCustomStyleSheet, setFont, setTheme, setThemeColor,
 )
 
-from app import settings
+from app import profiles, settings
 from app.version import VERSION
 from core import jev_client, llm, providers
 from core.questions import CHOICE_LABELS
@@ -136,8 +136,8 @@ class _ReplyCard(_Surface):
         self.reasonButton.clicked.connect(lambda: owner._explain(index))
         bottom.addWidget(self.reasonButton)
         bottom.addStretch(1)
-        self.fillButton = (PrimaryPushButton if recommended else PushButton)("填入微信", self)
-        self.fillButton.setAccessibleName(f"填入{'推荐回复' if recommended else f'备选 {number}'}到微信")
+        self.fillButton = (PrimaryPushButton if recommended else PushButton)("填入草稿", self)
+        self.fillButton.setAccessibleName(f"把{'推荐回复' if recommended else f'备选 {number}'}填进聊天输入框")
         self.fillButton.clicked.connect(lambda: owner._fill(index))
         bottom.addWidget(self.fillButton)
         box.addLayout(bottom)
@@ -213,8 +213,8 @@ class Overlay:
         self.captureSwitch = SwitchButton(header)
         self.captureSwitch.setOnText("采集中")
         self.captureSwitch.setOffText("已暂停")
-        self.captureSwitch.setToolTip("开启或暂停微信采集")
-        self.captureSwitch.setAccessibleName("开启或暂停微信采集")
+        self.captureSwitch.setToolTip("开启或暂停采集（目标应用在设置里选）")
+        self.captureSwitch.setAccessibleName("开启或暂停采集")
         self.captureSwitch.setChecked(True)
         self.captureSwitch.checkedChanged.connect(self._capture_toggled)
         title.addWidget(self.captureSwitch)
@@ -323,7 +323,7 @@ class Overlay:
         self.chatBox.setMinimumWidth(0)  # 别让会话名的长度撑开整行，宽度交给 stretch
         self.chatBox.setPlaceholderText("尚未识别到会话")
         self.chatBox.setAccessibleName("当前会话")
-        self.chatBox.setToolTip("微信切到哪个会话这里就跟到哪个；也可以自己选一个，只看它的记录和建议")
+        self.chatBox.setToolTip("目标应用切到哪个会话，这里就跟到哪个；也可以自己选一个，只看它的记录和建议")
         self.chatBox.currentIndexChanged.connect(self._on_chat_selected)
         chat_row.addWidget(self.chatBox, 1)
         self.chatFollow = _label("", 11, _MUTED)
@@ -346,7 +346,7 @@ class Overlay:
         target_row.addWidget(self.targetBox, 1)
         self.atCheck = CheckBox("填入时带 @")
         self.atCheck.setChecked(True)
-        self.atCheck.setToolTip("填入时在开头加「@名字 」。只是普通文字，微信不会认成真正的 @")
+        self.atCheck.setToolTip("填入时在开头加「@名字 」。只是普通文字，不会被认成真正的 @")
         target_row.addWidget(self.atCheck)
         self.targetRow.hide()
         body.addWidget(self.targetRow)
@@ -406,7 +406,7 @@ class Overlay:
         self.emptyTitle = _label("等待对方的新消息", 17, "#304c3c", True)
         self.emptyTitle.setAlignment(Qt.AlignCenter)
         empty_box.addWidget(self.emptyTitle)
-        self.emptyHint = _label("保持微信聊天窗口打开。\n收到新消息后，回复建议会出现在这里。", 13, _MUTED)
+        self.emptyHint = _label("保持聊天窗口打开（目标应用在设置里选）。\n收到新消息后，回复建议会出现在这里。", 13, _MUTED)
         self.emptyHint.setAlignment(Qt.AlignCenter)
         empty_box.addWidget(self.emptyHint)
         self.setupButton = PrimaryPushButton("前往设置")
@@ -458,6 +458,18 @@ class Overlay:
         box.setContentsMargins(16, 16, 16, 18)
         box.setSpacing(12)
         box.addWidget(_label("回复偏好", 16, "#304c3c", True))
+        app_label = _label("目标聊天应用", 13)
+        box.addWidget(app_label)
+        self.targetAppBox = ComboBox()
+        self.targetAppBox.setMinimumWidth(0)
+        self.targetAppBox.addItems(["微信", "QQ"])
+        self.targetAppBox.setAccessibleName("目标聊天应用")
+        app_label.setBuddy(self.targetAppBox)
+        box.addWidget(self.targetAppBox)
+        box.addWidget(self._hint(
+            "盯哪个应用的聊天窗口：微信，或 QQ（QQNT 主面板内嵌形态）。切换后采集自动重启；"
+            "QQ 的独立聊天窗口暂不支持。"
+        ))
         relation_label = _label("你们的关系", 13)
         box.addWidget(relation_label)
         self.relationshipBox = ComboBox()
@@ -794,6 +806,7 @@ class Overlay:
         index = next((i for i, (_, value) in enumerate(_RELATIONSHIPS) if value == relationship),
                      len(_RELATIONSHIPS) - 1)
         self.relationshipBox.setCurrentIndex(index)
+        self.targetAppBox.setCurrentIndex(1 if settings.target_app() == profiles.QQ else 0)
         self.relEdit.setText(relationship if _RELATIONSHIPS[index][1] is None else "")
         self.relEdit.setVisible(_RELATIONSHIPS[index][1] is None)
         self.styleEdit.setText(settings.style())
@@ -902,6 +915,7 @@ class Overlay:
                           ocr_provider_text=ocr_provider,
                           ocr_model_text=self.ocrModelEdit.text().strip(),
                           ocr_key_text=self.ocrKeyEdit.text().strip() or None,
+                          target_app_text=profiles.QQ if self.targetAppBox.currentIndex() == 1 else profiles.WECHAT,
                           check_update_on=self.updateSwitch.isChecked())
         except Exception:
             self._settings_feedback("保存失败，请检查配置文件是否可写后重试。", error=True)
@@ -973,17 +987,17 @@ class Overlay:
         except Exception as e:
             # 状态栏保持友好文案；真实原因和压缩堆栈进聊天记录，认得出是哪一步炸的
             import traceback
-            self.set_status("未能填入，请确认微信窗口可用后重试，或复制回复。", "error")
+            self.set_status("未能填入，请确认目标应用窗口可用后重试，或复制回复。", "error")
             self.log(f"[填入失败] {type(e).__name__}: {e}")
             self.log(f"[填入失败堆栈] {' '.join(traceback.format_exc().split())[:300]}")
             return
-        self.set_status("已尝试填入，请在微信确认内容后发送。", "success")
+        self.set_status("已尝试填入，请确认内容后自己发送。", "success")
 
     def _copy(self, index):
         if self._busy or not self._current or index >= len(self.cands):
             return
         self.app.clipboard().setText(self.cands[index])
-        self.set_status("回复已复制，可在微信中粘贴并修改。", "success")
+        self.set_status("回复已复制，可粘贴到聊天窗口修改。", "success")
 
     def _explain(self, index):
         if self._current and not self._busy and self.on_explain:
@@ -1012,7 +1026,7 @@ class Overlay:
         """开关状态对应的状态行和空态文案。已有的候选不受影响，暂停了照样能填入/复制。"""
         configured = settings.has_key()
         if not on:
-            self.set_status(reason or "采集已暂停，微信内容不再读取", "warning")
+            self.set_status(reason or "采集已暂停，聊天内容不再读取", "warning")
         elif configured:
             self.set_status("等待新消息", "idle")
         else:
@@ -1021,7 +1035,7 @@ class Overlay:
             return
         if not on:
             self.emptyTitle.setText("采集已暂停")
-            self.emptyHint.setText("微信里的内容暂时不再读取。\n打开标题栏的开关，继续接收新消息。")
+            self.emptyHint.setText("聊天内容暂时不再读取。\n打开标题栏的开关，继续接收新消息。")
             self.setupButton.setVisible(not configured)
         else:
             self._empty_text()
@@ -1048,7 +1062,7 @@ class Overlay:
         """空态卡片的默认文案，配好没配好两套说法。"""
         configured = settings.has_key()
         self.emptyTitle.setText("等待对方的新消息" if configured else "先设置，再开始")
-        self.emptyHint.setText("保持微信聊天窗口打开。\n收到新消息后，回复建议会出现在这里。"
+        self.emptyHint.setText("保持聊天窗口打开（目标应用在设置里选）。\n收到新消息后，回复建议会出现在这里。"
                                if configured else "配置模型和关系背景，\n让建议更贴近你们的对话。")
         self.setupButton.setVisible(not configured)
 
@@ -1117,6 +1131,22 @@ class Overlay:
     def current_chat(self):
         """界面上正在看的会话（不一定是微信当前开着的那个）。"""
         return self._shown
+
+    def reset_chat_state(self):
+        """Remove the previous app's cached UI when switching WeChat/QQ."""
+        self.invalidate_replies()
+        self._chat = self._shown = ""
+        for cache in (self.feeds, self.hers, self.counts, self.targets):
+            cache.clear()
+        self.chatBox.blockSignals(True)
+        self.chatBox.clear()
+        self.chatBox.blockSignals(False)
+        self.feed.clear()
+        self.context.hide()
+        self._render_targets()
+        self._history_title()
+        self._follow_text()
+        self.show_cached(None)
 
     def set_chat(self, title):
         """微信切到了哪个会话：登记进下拉框并自动跟过去，不触发用户选择的回调。"""
@@ -1198,7 +1228,7 @@ class Overlay:
         return self.atCheck.isChecked()
 
     def _follow_text(self):
-        self.chatFollow.setText(("跟随微信" if self._shown == self._chat else "浏览中") if self._chat else "")
+        self.chatFollow.setText(("跟随应用" if self._shown == self._chat else "浏览中") if self._chat else "")
 
     def show_cached(self, result):
         """把某个会话上次的结果放回界面；没有就回到空态。浏览别的会话时只给看不给填——
@@ -1215,7 +1245,7 @@ class Overlay:
             self._empty_text()
         if self._shown != self._chat:
             self.invalidate_replies()
-            self.set_status(f"正在浏览「{self._shown}」，只看不填；微信切回它才能用。")
+            self.set_status(f"正在浏览「{self._shown}」，只看不填；目标应用切回它才能用。")
 
     def show(self, result):
         """按推荐顺序展示，按钮始终绑定 candidates 的原始索引。"""

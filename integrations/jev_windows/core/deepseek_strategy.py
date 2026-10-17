@@ -10,8 +10,10 @@ import math
 
 try:
     from .goutou import explicit_boundary
+    from .transcript import speaker_label
 except ImportError:
     from goutou import explicit_boundary
+    from transcript import speaker_label
 
 STRATEGIES = ("承接", "降压", "调侃", "轻推", "约见", "澄清", "收线")
 CRITERIA = {
@@ -85,7 +87,7 @@ def decide(messages: list, relationship: str, model: str, key: str, timeout: flo
         raise ValueError("请先配置 DeepSeek 策略密钥")
     import openai
 
-    transcript = [{"speaker": m[0], "text": str(m[1])[:500]}
+    transcript = [{"speaker": speaker_label(m[0], m[2] if len(m) > 2 else None), "text": str(m[1])[:500]}
                   for m in messages[-30:] if len(m) >= 2]
     client = openai.OpenAI(base_url="https://api.deepseek.com", api_key=key,
                            timeout=timeout, max_retries=1)
@@ -156,7 +158,8 @@ def rank(messages: list, relationship: str, strategy: str, candidates: list[str]
     client = openai.OpenAI(base_url="https://api.deepseek.com", api_key=key,
                            timeout=timeout, max_retries=1)
     payload = {"relationship": relationship, "strategy": strategy,
-               "transcript": [list(m[:2]) for m in messages[-20:]],
+               "transcript": [[speaker_label(m[0], m[2] if len(m) > 2 else None), str(m[1])]
+                              for m in messages[-20:] if len(m) >= 2],
                "candidates": [{"id": i, "text": t} for i, t in enumerate(candidates)]}
     try:
         response = client.chat.completions.create(model=model, messages=[

@@ -193,9 +193,19 @@ def validate_runtime_boundaries() -> None:
                 )
 
 
+_SKIP_DIRS = {".git", ".venv", "venv", "__pycache__", "node_modules", "dist"}
+
+
+def _in_skip_dir(path: Path) -> bool:
+    """本地开发目录（虚拟环境、构建产物）不参与内容校验；CI 干净检出里本来就没有。"""
+    return bool(_SKIP_DIRS.intersection(path.relative_to(ROOT).parts))
+
+
 def validate_markdown_links() -> None:
     link_pattern = re.compile(r"\]\(([^)]+)\)")
     for markdown in ROOT.rglob("*.md"):
+        if _in_skip_dir(markdown):
+            continue
         text = markdown.read_text(encoding="utf-8")
         for raw_target in link_pattern.findall(text):
             target = raw_target.strip().split("#", 1)[0]
@@ -210,7 +220,7 @@ def validate_markdown_links() -> None:
 
 def validate_placeholders() -> None:
     for path in ROOT.rglob("*"):
-        if not path.is_file() or ".git" in path.parts:
+        if not path.is_file() or _in_skip_dir(path):
             continue
         if path.suffix.lower() not in {".md", ".yaml", ".yml", ".py"}:
             continue
