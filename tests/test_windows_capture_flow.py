@@ -150,6 +150,14 @@ class WindowsCaptureFlowTests(unittest.TestCase):
         main.drain()
         self.assertEqual(list(main.chat_of("我是好人")["history"]), old[1:] + [fresh])
 
+    def test_wechat_group_participants_same_reply_are_retained(self):
+        main = load_main()
+        main.chat_of("我是好人")["history"].append(("her", "收到", "甲"))
+        main.q.put(("lines", "我是好人", [("her", "乙", "收到")], (100,100,600,500)))
+        main.drain()
+        self.assertEqual(list(main.chat_of("我是好人")["history"]),
+                         [("her", "收到", "甲"), ("her", "收到", "乙")])
+
     def test_same_title_history_and_results_are_scoped_by_app(self):
         main = load_main()
         wechat = main.chat_of("我是好人")

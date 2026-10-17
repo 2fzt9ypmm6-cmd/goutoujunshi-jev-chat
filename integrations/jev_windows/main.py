@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """父进程：只管界面。截图 + OCR 在 app/worker.py 的子进程里跑，队列里收新消息 →
 冒出新的对方消息才调 engine → 悬浮窗给 3 条候选 → 人点「填入」。发送永远手动。静默期零调用。
-上下文、结果、聊天记录都按会话名（子进程 OCR 头部标题得来）分开存，切会话不串味。
+上下文、结果、聊天记录按应用和会话名分开存，切会话或应用时不混用。
 
     pip install rapidocr-onnxruntime numpy windows-capture PySide6-Fluent-Widgets
 两个模型（判断 Jev / 起草语言模型）的来源和 key 在独立设置页填写，不用改代码。IDE 里直接 Run。
@@ -23,7 +23,7 @@ from core.engine import analyze
 from core.experience import details as generate_details, explain as explain_candidate, rewrite as rewrite_candidates
 from core.transcript import merge_transcript, similar
 
-# {会话名: {history, result, rev, target, senders}}：每个会话各自的上下文、上次结果和版本号，互不串味
+# {(应用, 会话名): {history, result, rev, target, senders}}
 # history 里是 [(who, text, name)]，engine 只认 her/me，name 是群里的发言人（单聊/自己说的是 None）；
 # 只是缓冲区，实际喂模型几条由设置里的「参考上下文」决定
 # senders：这个群里发过言的人，去重、最近的排最前；target：用户挑的回复对象（None = 跟着最近那个走）
@@ -395,7 +395,7 @@ def drain():
         if title == ov.current_chat():  # 看的是别的会话就别把人家的候选划掉
             ov.invalidate_replies()
         for who, name, text in new:
-            if any(w == who and similar(t, text) for w, t, _n in chat["history"]):
+            if any(w == who and n == name and similar(t, text) for w, t, n in chat["history"]):
                 continue  # 抖动重复上报 / 重扫后的增量兜底：同一条只进一次
             chat["history"].append((who, text, name))
             ov.log_message(who, text, name, chat=title)

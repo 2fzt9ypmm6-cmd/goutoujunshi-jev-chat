@@ -17,8 +17,23 @@ def main():
     overlay.show({"candidates": ["好，周六见", "行，周六见"], "best_index": 0,
                   "scores": [.6, .4], "goutou": {"intent": "可能愿意继续聊",
                   "action": "先承接", "facts": ["对方说周六见"]}})
-    review = ReviewDialog("测试会话", [("me", "在吗"), ("her", "在")], overlay.win)
+    overlay.set_chat("测试会话")
+    overlay.log_message("her", "仅属于上一应用", chat="测试会话")
+    overlay.reset_chat_state()
+    assert not overlay.current_chat() and not overlay.feeds and not overlay.cands
+    source = [("me", "在吗"), ("her", "在")]
+    snapshot = {"rows": source, "revision": 1}
+    review = ReviewDialog("测试会话", source, overlay.win,
+                          history_of=lambda: snapshot["rows"],
+                          revision_of=lambda: snapshot["revision"])
     assert review.editor.toPlainText().count("：") == 2
+    review.editor.setPlainText("我：在吗\n对方：在的")
+    snapshot.update(rows=source + [("her", "下午见")], revision=2)
+    review._accumulate()
+    assert review.reviewed_revision == 2
+    assert review.editor.toPlainText() == "我：在吗\n对方：在的\n对方：下午见"
+    review._confirm()
+    assert review.messages == [("me", "在吗"), ("her", "在的"), ("her", "下午见")]
     trend = TrendWindow()
     assert trend.canvas.candles
     trend.close()
