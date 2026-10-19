@@ -1,0 +1,53 @@
+name: iOS unsigned device IPA (no Mac needed)
+# 用法：
+# 1. Fork https://github.com/shengjidaguai-china/goutoujunshi-jev-chat
+# 2. 把本文件放到 fork 仓库的 .github/workflows/ 目录（文件名任意，如 ipa.yml）
+# 3. GitHub 网页上进入 Actions → 选择本工作流 → Run workflow
+# 4. 运行完成后在该次运行的 Artifacts 里下载 .ipa（未签名）
+# 5. 把未签名 IPA 上传到你的共享证书平台（云签/超级签）在线签名，手机浏览器打开安装链接即可
+#    无需 Mac，全程可在 iPhone 浏览器上完成
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "integrations/jev_ios/**"
+
+permissions:
+  contents: read
+
+jobs:
+  ios:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: integrations/jev_ios
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Offline core and project checks
+        run: bash tools/check.sh
+
+      # 真机未签名构建（主 App + 键盘 + 截图扩展，三个 target）
+      - name: Build device targets unsigned
+        run: >-
+          xcodebuild -project GoutouJunshi.xcodeproj -scheme GoutouJunshi
+          -destination 'generic/platform=iOS'
+          -derivedDataPath build-device
+          -configuration Release
+          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+
+      # 打包为未签名 IPA：Payload/GoutouJunshi.app -> zip -> 改后缀 .ipa
+      - name: Package unsigned IPA
+        run: |
+          mkdir -p Payload
+          cp -R build-device/Build/Products/Release-iphoneos/GoutouJunshi.app Payload/
+          zip -r goutoujunshi-unsigned.ipa Payload -x '*.DS_Store'
+          echo "IPA 打包完成"
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: goutoujunshi-unsigned-ipa
+          path: integrations/jev_ios/goutoujunshi-unsigned.ipa
+          if-no-files-found: error
